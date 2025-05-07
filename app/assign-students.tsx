@@ -1,8 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, ActivityIndicator } from 'react-native';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, ActivityIndicator, Animated, Dimensions, FlatList } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { User, Course, getUsers, updateCourse, getCourses } from '../lib/api';
+
+const ITEMS_PER_PAGE = 50;
+const WINDOW_HEIGHT = Dimensions.get('window').height;
 
 export default function AssignStudents() {
   const params = useLocalSearchParams();
@@ -14,57 +17,65 @@ export default function AssignStudents() {
   const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
   const [students, setStudents] = useState<User[]>([]);
   const [currentCourse, setCurrentCourse] = useState<Course | null>(null);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [studentsPerPage] = useState(50);
-  const [filteredStudents, setFilteredStudents] = useState<User[]>([]);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState('enrolled'); // 'enrolled' or 'available'
+  const [activeTab, setActiveTab] = useState('enrolled');
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [page, setPage] = useState(1);
 
-  useEffect(() => {
-    fetchStudents();
-    fetchCourse();
-  }, []);
+  const [fadeAnim] = useState(new Animated.Value(0));
+  const [slideAnim] = useState(new Animated.Value(50));
 
-  useEffect(() => {
-    const filtered = students.filter(student => 
+  // Memoize filtered students to prevent unnecessary recalculations
+  const filteredStudents = useMemo(() => {
+    return students.filter(student => 
       (student.lastName.toLowerCase() + ', ' + student.firstName.toLowerCase())
         .includes(searchQuery.toLowerCase()) ||
       student.idNumber.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-
-    // Sort students alphabetically by last name
-    const sortedStudents = filtered.sort((a, b) => {
+    ).sort((a, b) => {
       const nameA = `${a.lastName} ${a.firstName}`.toLowerCase();
       const nameB = `${b.lastName} ${b.firstName}`.toLowerCase();
       return nameA.localeCompare(nameB);
     });
+  }, [students, searchQuery]);
 
-    setFilteredStudents(sortedStudents);
-    setCurrentPage(1);
-  }, [searchQuery, students]);
+  // Memoize displayed students based on active tab
+  const displayedStudents = useMemo(() => {
+    return filteredStudents.filter(student => 
+      activeTab === 'enrolled' 
+        ? selectedStudents.includes(student._id)
+        : !selectedStudents.includes(student._id)
+    );
+  }, [filteredStudents, selectedStudents, activeTab]);
 
-  // Separate assigned and unassigned students
-  const assignedStudents = filteredStudents.filter(student => 
-    selectedStudents.includes(student._id)
-  );
+  // Memoize paginated students
+  const paginatedStudents = useMemo(() => {
+    return displayedStudents.slice(0, page * ITEMS_PER_PAGE);
+  }, [displayedStudents, page]);
 
-  const unassignedStudents = filteredStudents.filter(student => 
-    !selectedStudents.includes(student._id)
-  );
-
-  const displayedStudents = activeTab === 'enrolled' ? assignedStudents : unassignedStudents;
+  useEffect(() => {
+    fetchStudents();
+    fetchCourse();
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 500,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 500,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, []);
 
   const fetchStudents = async () => {
     try {
       const users = await getUsers();
-      const studentUsers = users
-        .filter(user => user.role === 'student')
-        .sort((a, b) => {
-          const nameA = `${a.lastName} ${a.firstName}`.toLowerCase();
-          const nameB = `${b.lastName} ${b.firstName}`.toLowerCase();
-          return nameA.localeCompare(nameB);
-        });
+      const studentUsers = users.filter(user => user.role === 'student');
       setStudents(studentUsers);
+      setHasMore(studentUsers.length > ITEMS_PER_PAGE);
     } catch (error) {
       console.error('Error fetching students:', error);
       setError('Failed to fetch students. Please try again.');
@@ -85,22 +96,14 @@ export default function AssignStudents() {
     }
   };
 
-  const indexOfLastStudent = currentPage * studentsPerPage;
-  const indexOfFirstStudent = indexOfLastStudent - studentsPerPage;
-  const currentStudents = filteredStudents.slice(indexOfFirstStudent, indexOfLastStudent);
-  const totalPages = Math.ceil(filteredStudents.length / studentsPerPage);
-
-  const handleNextPage = () => {
-    if (currentPage < totalPages) {
-      setCurrentPage(currentPage + 1);
+  const loadMore = useCallback(() => {
+    if (!isLoadingMore && hasMore) {
+      setIsLoadingMore(true);
+      setPage(prev => prev + 1);
+      setHasMore(displayedStudents.length > page * ITEMS_PER_PAGE);
+      setIsLoadingMore(false);
     }
-  };
-
-  const handlePrevPage = () => {
-    if (currentPage > 1) {
-      setCurrentPage(currentPage - 1);
-    }
-  };
+  }, [isLoadingMore, hasMore, displayedStudents.length, page]);
 
   const handleSaveAssignments = async () => {
     if (!currentCourse) return;
@@ -123,153 +126,221 @@ export default function AssignStudents() {
     }
   };
 
+  const renderStudentItem = useCallback(({ item: student }: { item: User }) => (
+    <TouchableOpacity
+      key={student._id}
+      style={[
+        styles.studentItem,
+        activeTab === 'enrolled' && styles.selectedStudent
+      ]}
+      onPress={() => {
+        if (activeTab === 'enrolled') {
+          setSelectedStudents(prev => prev.filter(id => id !== student._id));
+        } else {
+          setSelectedStudents(prev => [...prev, student._id]);
+        }
+      }}
+    >
+      <View style={styles.studentInfo}>
+        <View style={styles.studentHeader}>
+          <Text style={styles.studentId}>{student.idNumber}</Text>
+          {activeTab === 'enrolled' ? (
+            <Ionicons name="checkmark-circle" size={20} color="#4caf50" />
+          ) : null}
+        </View>
+        <Text style={[
+          styles.studentName,
+          activeTab === 'enrolled' && styles.selectedStudentText
+        ]}>
+          {student.lastName}, {student.firstName}
+        </Text>
+      </View>
+      <TouchableOpacity
+        style={[
+          styles.actionButton,
+          activeTab === 'enrolled' ? styles.removeButton : styles.addButton
+        ]}
+        onPress={() => {
+          if (activeTab === 'enrolled') {
+            setSelectedStudents(prev => prev.filter(id => id !== student._id));
+          } else {
+            setSelectedStudents(prev => [...prev, student._id]);
+          }
+        }}
+      >
+        <Ionicons 
+          name={activeTab === 'enrolled' ? 'remove' : 'add'} 
+          size={24} 
+          color="#fff" 
+        />
+      </TouchableOpacity>
+    </TouchableOpacity>
+  ), [activeTab, selectedStudents]);
+
+  const renderEmptyState = useCallback(() => (
+    <View style={styles.emptyState}>
+      <Ionicons 
+        name={activeTab === 'enrolled' ? 'people' : 'person-add'} 
+        size={48} 
+        color="#ccc" 
+      />
+      <Text style={styles.emptyStateText}>
+        {activeTab === 'enrolled' 
+          ? 'No students enrolled in this course yet'
+          : 'No available students found'}
+      </Text>
+    </View>
+  ), [activeTab]);
+
+  const renderFooter = useCallback(() => {
+    if (!isLoadingMore) return null;
+    return (
+      <View style={styles.loadingMore}>
+        <ActivityIndicator size="small" color="#1a73e8" />
+      </View>
+    );
+  }, [isLoadingMore]);
+
+  const getItemLayout = useCallback((data: any, index: number) => ({
+    length: 80, // Approximate height of each item
+    offset: 80 * index,
+    index,
+  }), []);
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="#1a73e8" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Assign Students</Text>
-        <TouchableOpacity
-          style={[styles.saveButton, isLoading && styles.saveButtonDisabled]}
-          onPress={handleSaveAssignments}
-          disabled={isLoading}
-        >
-          {isLoading ? (
-            <ActivityIndicator color="#fff" size="small" />
-          ) : (
-            <Text style={styles.saveButtonText}>Save</Text>
-          )}
-        </TouchableOpacity>
-      </View>
-
-      {currentCourse && (
-        <Text style={styles.subtitle}>
-          {currentCourse.courseName} ({currentCourse.courseCode})
-        </Text>
-      )}
-
-      {successMessage && (
-        <View style={styles.successContainer}>
-          <Ionicons name="checkmark-circle" size={20} color="#4caf50" />
-          <Text style={styles.successText}>{successMessage}</Text>
-        </View>
-      )}
-
-      <View style={styles.searchContainer}>
-        <Ionicons name="search" size={20} color="#666" />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search by name or ID number..."
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-        />
-        {searchQuery ? (
-          <TouchableOpacity onPress={() => setSearchQuery('')}>
-            <Ionicons name="close-circle" size={20} color="#666" />
+        <View style={styles.headerContent}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color="#002147" />
           </TouchableOpacity>
-        ) : null}
-      </View>
-
-      <View style={styles.tabContainer}>
-        <TouchableOpacity
-          style={[
-            styles.tabButton,
-            activeTab === 'enrolled' && styles.activeTabButton
-          ]}
-          onPress={() => setActiveTab('enrolled')}
-        >
-          <Text style={[
-            styles.tabText,
-            activeTab === 'enrolled' && styles.activeTabText
-          ]}>
-            Enrolled ({assignedStudents.length})
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[
-            styles.tabButton,
-            activeTab === 'available' && styles.activeTabButton
-          ]}
-          onPress={() => setActiveTab('available')}
-        >
-          <Text style={[
-            styles.tabText,
-            activeTab === 'available' && styles.activeTabText
-          ]}>
-            Students List ({unassignedStudents.length})
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView style={styles.studentList}>
-        {displayedStudents.map((student) => (
+          <Text style={styles.headerTitle}>Assign Students</Text>
           <TouchableOpacity
-            key={student._id}
-            style={[
-              styles.studentItem,
-              activeTab === 'enrolled' && styles.selectedStudent
-            ]}
-            onPress={() => {
-              if (activeTab === 'enrolled') {
-                setSelectedStudents(prev => prev.filter(id => id !== student._id));
-              } else {
-                setSelectedStudents(prev => [...prev, student._id]);
-              }
-            }}
+            style={[styles.saveButton, isLoading && styles.saveButtonDisabled]}
+            onPress={handleSaveAssignments}
+            disabled={isLoading}
           >
-            <View style={styles.studentInfo}>
-              <Text style={styles.studentId}>{student.idNumber}</Text>
-              <Text style={[
-                styles.studentName,
-                activeTab === 'enrolled' && styles.selectedStudentText
-              ]}>
-                {student.lastName}, {student.firstName}
-              </Text>
-            </View>
-            {activeTab === 'enrolled' ? (
-              <Ionicons name="remove-circle" size={20} color="#dc3545" />
+            {isLoading ? (
+              <ActivityIndicator color="#fff" size="small" />
             ) : (
-              <Ionicons name="add-circle" size={20} color="#4caf50" />
+              <>
+                <Ionicons name="checkmark" size={20} color="#fff" style={styles.buttonIcon} />
+                <Text style={styles.saveButtonText}>Save</Text>
+              </>
             )}
           </TouchableOpacity>
-        ))}
-        {displayedStudents.length === 0 && (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyStateText}>
-              {activeTab === 'enrolled' 
-                ? 'No students enrolled in this course yet'
-                : 'No available students found'}
-            </Text>
-          </View>
-        )}
-      </ScrollView>
-
-      <View style={styles.paginationContainer}>
-        <TouchableOpacity
-          style={[styles.paginationButton, currentPage === 1 && styles.paginationButtonDisabled]}
-          onPress={handlePrevPage}
-          disabled={currentPage === 1}
-        >
-          <Ionicons name="chevron-back" size={20} color={currentPage === 1 ? "#ccc" : "#666"} />
-        </TouchableOpacity>
-        <Text style={styles.paginationText}>
-          Page {currentPage} of {totalPages}
-        </Text>
-        <TouchableOpacity
-          style={[styles.paginationButton, currentPage === totalPages && styles.paginationButtonDisabled]}
-          onPress={handleNextPage}
-          disabled={currentPage === totalPages}
-        >
-          <Ionicons name="chevron-forward" size={20} color={currentPage === totalPages ? "#ccc" : "#666"} />
-        </TouchableOpacity>
+        </View>
       </View>
 
-      {error && (
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>{error}</Text>
+      <Animated.View 
+        style={[
+          styles.content,
+          {
+            opacity: fadeAnim,
+            transform: [{ translateY: slideAnim }]
+          }
+        ]}
+      >
+        {currentCourse && (
+          <View style={styles.courseInfo}>
+            <View style={styles.courseHeader}>
+              <Ionicons name="book" size={24} color="#1a73e8" />
+              <Text style={styles.courseTitle}>
+                {currentCourse.courseName}
+              </Text>
+            </View>
+            <Text style={styles.courseCode}>{currentCourse.courseCode}</Text>
+          </View>
+        )}
+
+        {successMessage && (
+          <View style={styles.successContainer}>
+            <Ionicons name="checkmark-circle" size={20} color="#4caf50" />
+            <Text style={styles.successText}>{successMessage}</Text>
+          </View>
+        )}
+
+        <View style={styles.searchContainer}>
+          <View style={styles.searchInputContainer}>
+            <Ionicons name="search" size={20} color="#666" style={styles.searchIcon} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search by name or ID number..."
+              placeholderTextColor="#999"
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
+            {searchQuery ? (
+              <TouchableOpacity 
+                onPress={() => setSearchQuery('')}
+                style={styles.clearButton}
+              >
+                <Ionicons name="close-circle" size={20} color="#666" />
+              </TouchableOpacity>
+            ) : null}
+          </View>
         </View>
-      )}
+
+        <View style={styles.tabContainer}>
+          <TouchableOpacity
+            style={[
+              styles.tabButton,
+              activeTab === 'enrolled' && styles.activeTabButton
+            ]}
+            onPress={() => setActiveTab('enrolled')}
+          >
+            <Ionicons 
+              name="people" 
+              size={20} 
+              color={activeTab === 'enrolled' ? '#fff' : '#666'} 
+              style={styles.tabIcon}
+            />
+            <Text style={[
+              styles.tabText,
+              activeTab === 'enrolled' && styles.activeTabText
+            ]}>
+              Enrolled ({displayedStudents.length})
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.tabButton,
+              activeTab === 'available' && styles.activeTabButton
+            ]}
+            onPress={() => setActiveTab('available')}
+          >
+            <Ionicons 
+              name="person-add" 
+              size={20} 
+              color={activeTab === 'available' ? '#fff' : '#666'} 
+              style={styles.tabIcon}
+            />
+            <Text style={[
+              styles.tabText,
+              activeTab === 'available' && styles.activeTabText
+            ]}>
+              Available ({displayedStudents.length})
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <FlatList
+          data={paginatedStudents}
+          renderItem={renderStudentItem}
+          keyExtractor={item => item._id}
+          ListEmptyComponent={renderEmptyState}
+          ListFooterComponent={renderFooter}
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.5}
+          getItemLayout={getItemLayout}
+          removeClippedSubviews={true}
+          maxToRenderPerBatch={10}
+          windowSize={5}
+          initialNumToRender={10}
+          style={styles.studentList}
+          contentContainerStyle={styles.studentListContent}
+        />
+      </Animated.View>
     </View>
   );
 }
@@ -277,18 +348,25 @@ export default function AssignStudents() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#f8f9fa',
   },
   header: {
+    backgroundColor: '#fff',
+    paddingTop: 20,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e9ecef',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  headerContent: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: 15,
-    paddingBottom: 16,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    paddingHorizontal: 20,
   },
   backButton: {
     padding: 8,
@@ -296,69 +374,123 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#333',
+    color: '#002147',
   },
   saveButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#1a73e8',
     paddingHorizontal: 16,
     paddingVertical: 8,
-    borderRadius: 8,
+    borderRadius: 20,
+    elevation: 2,
+    shadowColor: '#1a73e8',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
   },
   saveButtonDisabled: {
-    opacity: 0.6,
+    opacity: 0.7,
   },
   saveButtonText: {
     color: '#fff',
+    fontSize: 16,
     fontWeight: '600',
   },
-  subtitle: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    marginVertical: 6,
-    fontWeight: 'bold',
+  buttonIcon: {
+    marginRight: 8,
   },
-  searchContainer: {
+  content: {
+    flex: 1,
+    padding: 20,
+  },
+  courseInfo: {
+    backgroundColor: '#fff',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 20,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  courseHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f8f9fa',
-    margin: 6,
+    marginBottom: 8,
+  },
+  courseTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#002147',
+    marginLeft: 12,
+  },
+  courseCode: {
+    fontSize: 14,
+    color: '#666',
+    marginLeft: 36,
+  },
+  searchContainer: {
+    marginBottom: 20,
+  },
+  searchInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
     borderRadius: 12,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: '#e9ecef',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  searchIcon: {
+    marginRight: 12,
   },
   searchInput: {
     flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
     fontSize: 16,
+    color: '#333',
+  },
+  clearButton: {
+    padding: 4,
   },
   tabContainer: {
     flexDirection: 'row',
-    paddingHorizontal: 16,
-    marginBottom: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 4,
+    marginBottom: 20,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
   tabButton: {
     flex: 1,
-    paddingVertical: 12,
+    flexDirection: 'row',
     alignItems: 'center',
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: 8,
   },
   activeTabButton: {
-    borderBottomColor: '#1a73e8',
+    backgroundColor: '#1a73e8',
+  },
+  tabIcon: {
+    marginRight: 8,
   },
   tabText: {
     fontSize: 15,
-    fontWeight: '500',
+    fontWeight: '600',
     color: '#666',
   },
   activeTabText: {
-    color: '#1a73e8',
-    fontWeight: '600',
+    color: '#fff',
   },
   studentList: {
     flex: 1,
@@ -367,87 +499,90 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    backgroundColor: '#fff',
     padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-    marginHorizontal: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
   selectedStudent: {
-    backgroundColor: '#e8f5e9',
+    backgroundColor: '#e8f0fe',
+    borderWidth: 1,
+    borderColor: '#1a73e8',
   },
   studentInfo: {
     flex: 1,
+  },
+  studentHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    marginBottom: 4,
   },
   studentId: {
     fontSize: 14,
     color: '#666',
-    minWidth: 80,
-    fontFamily: 'monospace',
+    marginRight: 8,
   },
   studentName: {
-    flex: 1,
     fontSize: 16,
-    color: '#333',
-    fontWeight: '500',
+    fontWeight: '600',
+    color: '#002147',
   },
   selectedStudentText: {
-    color: '#4caf50',
-    fontWeight: '600',
+    color: '#1a73e8',
   },
-  paginationContainer: {
-    flexDirection: 'row',
+  actionButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
+    marginLeft: 12,
   },
-  paginationButton: {
-    padding: 8,
-    borderRadius: 8,
-    backgroundColor: '#f8f9fa',
+  addButton: {
+    backgroundColor: '#4caf50',
   },
-  paginationButtonDisabled: {
-    opacity: 0.5,
+  removeButton: {
+    backgroundColor: '#dc3545',
   },
-  paginationText: {
-    marginHorizontal: 16,
-    fontSize: 14,
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 40,
+  },
+  emptyStateText: {
     color: '#666',
+    fontSize: 16,
+    fontWeight: '500',
+    marginTop: 12,
+    textAlign: 'center',
   },
   successContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#e8f5e9',
-    padding: 12,
-    margin: 16,
-    borderRadius: 8,
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#c8e6c9',
   },
   successText: {
-    color: '#4caf50',
-    fontSize: 16,
+    color: '#2e7d32',
+    fontSize: 15,
+    fontWeight: '600',
     marginLeft: 8,
   },
-  errorContainer: {
-    backgroundColor: '#ffebee',
-    padding: 12,
-    margin: 16,
-    borderRadius: 8,
+  studentListContent: {
+    paddingBottom: 20,
   },
-  errorText: {
-    color: '#dc3545',
-    fontSize: 14,
-  },
-  emptyState: {
-    padding: 24,
+  loadingMore: {
+    paddingVertical: 20,
     alignItems: 'center',
-  },
-  emptyStateText: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
   },
 }); 

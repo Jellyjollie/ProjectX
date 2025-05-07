@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, TextInput, ActivityIndicator, Image, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, TextInput, ActivityIndicator, Image, KeyboardAvoidingView, Platform, Animated, PanResponder, Dimensions } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
@@ -19,13 +19,20 @@ interface RoleCardProps {
 }
 
 const RoleCard: React.FC<RoleCardProps> = ({ role, count, onPress, iconName }) => (
-  <TouchableOpacity style={styles.roleCard} onPress={onPress}>
+  <TouchableOpacity 
+    style={styles.roleCard} 
+    onPress={onPress}
+    activeOpacity={0.9}
+  >
     <View style={styles.roleCardContent}>
-      <View style={styles.roleIconContainer}>
+      <View style={[styles.roleIconContainer, styles[`${role}IconContainer`]]}>
         <Ionicons name={iconName} size={32} color="#1a73e8" />
       </View>
-      <Text style={styles.roleTitle}>{role.charAt(0).toUpperCase() + role.slice(1)}s</Text>
-      <Text style={styles.roleCount}>{count} {count === 1 ? 'user' : 'users'}</Text>
+      <View style={styles.roleInfo}>
+        <Text style={styles.roleTitle}>{role.charAt(0).toUpperCase() + role.slice(1)}s</Text>
+        <Text style={styles.roleCount}>{count} {count === 1 ? 'user' : 'users'}</Text>
+      </View>
+      <Ionicons name="chevron-forward" size={24} color="#1a73e8" style={styles.roleArrow} />
     </View>
   </TouchableOpacity>
 );
@@ -278,6 +285,58 @@ export default function ManageUsers() {
     message: '',
     type: 'error'
   });
+  const [drawerHeight] = useState(new Animated.Value(0));
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const screenHeight = Dimensions.get('window').height;
+
+  const panResponder = PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: (_, gestureState) => {
+      return Math.abs(gestureState.dy) > 5;
+    },
+    onPanResponderMove: (_, gestureState) => {
+      if (gestureState.dy > 0) { // Only allow dragging down
+        drawerHeight.setValue(gestureState.dy);
+      }
+    },
+    onPanResponderRelease: (_, gestureState) => {
+      if (gestureState.dy > 100) {
+        closeDrawer();
+      } else {
+        Animated.spring(drawerHeight, {
+          toValue: 0,
+          useNativeDriver: false,
+        }).start();
+      }
+    },
+  });
+
+  const openDrawer = () => {
+    setIsDrawerOpen(true);
+    Animated.spring(drawerHeight, {
+      toValue: screenHeight * 0.9,
+      useNativeDriver: false,
+    }).start();
+  };
+
+  const closeDrawer = () => {
+    Animated.timing(drawerHeight, {
+      toValue: 0,
+      duration: 300,
+      useNativeDriver: false,
+    }).start(() => {
+      setIsDrawerOpen(false);
+      setFormData({
+        idNumber: '',
+        firstName: '',
+        lastName: '',
+        email: '',
+        username: '',
+        role: 'student',
+      });
+      setSelectedUser(null);
+    });
+  };
 
   useEffect(() => {
     fetchUsers();
@@ -308,7 +367,7 @@ export default function ManageUsers() {
       username: '',
       role: 'student',
     });
-    setShowModal(true);
+    openDrawer();
   };
 
   const handleEditUser = async (user: User) => {
@@ -316,7 +375,6 @@ export default function ManageUsers() {
       setIsLoading(true);
       setError(null);
       
-      // Set up the form data with the user's current information
       setFormData({
         idNumber: user.idNumber,
         firstName: user.firstName,
@@ -326,9 +384,8 @@ export default function ManageUsers() {
         role: user.role,
       });
       
-      // Set the selected user and show the modal
       setSelectedUser(user);
-      setShowModal(true);
+      openDrawer();
     } catch (error) {
       console.error('Error preparing user edit:', error);
       setError(error instanceof Error ? error.message : 'Failed to prepare user edit');
@@ -517,6 +574,184 @@ export default function ManageUsers() {
     return users.filter(user => user.role === role);
   };
 
+  const renderDrawer = () => (
+    <Animated.View
+      style={[
+        styles.drawer,
+        {
+          height: drawerHeight,
+        },
+      ]}
+    >
+      <View style={styles.drawerHeader} {...panResponder.panHandlers}>
+        <View style={styles.drawerHandle} />
+        <Text style={styles.drawerTitle}>
+          {selectedUser ? 'Edit User' : 'Add New User'}
+        </Text>
+        <TouchableOpacity onPress={closeDrawer} style={styles.closeButton}>
+          <Ionicons name="close" size={24} color="#002147" />
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView 
+        style={styles.drawerContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.formSection}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="person-circle-outline" size={24} color="#1a73e8" />
+            <Text style={styles.sectionTitle}>Personal Information</Text>
+          </View>
+          <View style={styles.inputContainer}>
+            <Text style={styles.inputLabel}>ID Number</Text>
+            <View style={styles.inputWrapper}>
+              <Ionicons name="card-outline" size={20} color="#666" style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                value={formData.idNumber}
+                onChangeText={(text) => setFormData({ ...formData, idNumber: text })}
+                placeholder="Enter ID number"
+                placeholderTextColor="#999"
+              />
+            </View>
+          </View>
+
+          <View style={styles.nameContainer}>
+            <View style={[styles.inputContainer, { flex: 1, marginRight: 8 }]}>
+              <Text style={styles.inputLabel}>First Name</Text>
+              <View style={styles.inputWrapper}>
+                <Ionicons name="person-outline" size={20} color="#666" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  value={formData.firstName}
+                  onChangeText={(text) => setFormData({ ...formData, firstName: text })}
+                  placeholder="Enter first name"
+                  placeholderTextColor="#999"
+                />
+              </View>
+            </View>
+            <View style={[styles.inputContainer, { flex: 1, marginLeft: 8 }]}>
+              <Text style={styles.inputLabel}>Last Name</Text>
+              <View style={styles.inputWrapper}>
+                <Ionicons name="person-outline" size={20} color="#666" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  value={formData.lastName}
+                  onChangeText={(text) => setFormData({ ...formData, lastName: text })}
+                  placeholder="Enter last name"
+                  placeholderTextColor="#999"
+                />
+              </View>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.formSection}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="lock-closed-outline" size={24} color="#1a73e8" />
+            <Text style={styles.sectionTitle}>Account Information</Text>
+          </View>
+          <View style={styles.inputContainer}>
+            <Text style={styles.inputLabel}>Email</Text>
+            <View style={styles.inputWrapper}>
+              <Ionicons name="mail-outline" size={20} color="#666" style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                value={formData.email}
+                onChangeText={(text) => setFormData({ ...formData, email: text })}
+                placeholder="Enter email"
+                keyboardType="email-address"
+                placeholderTextColor="#999"
+                autoCapitalize="none"
+              />
+            </View>
+          </View>
+
+          <View style={styles.inputContainer}>
+            <Text style={styles.inputLabel}>Username</Text>
+            <View style={styles.inputWrapper}>
+              <Ionicons name="at-outline" size={20} color="#666" style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                value={formData.username}
+                onChangeText={(text) => setFormData({ ...formData, username: text })}
+                placeholder="Enter username"
+                placeholderTextColor="#999"
+                autoCapitalize="none"
+              />
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.formSection}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="shield-outline" size={24} color="#1a73e8" />
+            <Text style={styles.sectionTitle}>Role</Text>
+          </View>
+          <View style={styles.roleContainer}>
+            {['student', 'lecturer', 'admin'].map((role) => (
+              <TouchableOpacity
+                key={role}
+                style={[
+                  styles.roleButton,
+                  formData.role === role && styles.roleButtonSelected,
+                ]}
+                onPress={() => setFormData({ ...formData, role })}
+              >
+                <View style={[
+                  styles.roleIconContainer,
+                  formData.role === role && styles.roleIconContainerSelected
+                ]}>
+                  <Ionicons
+                    name={
+                      role === 'admin' ? 'shield-checkmark' :
+                      role === 'lecturer' ? 'school' : 'people'
+                    }
+                    size={24}
+                    color={formData.role === role ? '#fff' : '#666'}
+                  />
+                </View>
+                <Text
+                  style={[
+                    styles.roleButtonText,
+                    formData.role === role && styles.roleButtonTextSelected,
+                  ]}
+                >
+                  {role.charAt(0).toUpperCase() + role.slice(1)}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.drawerButtons}>
+          <TouchableOpacity
+            style={[styles.drawerButton, styles.cancelButton]}
+            onPress={closeDrawer}
+          >
+            <Ionicons name="close" size={20} color="#666" style={styles.buttonIcon} />
+            <Text style={styles.cancelButtonText}>Cancel</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.drawerButton, styles.saveButton]}
+            onPress={handleSubmit}
+            disabled={isLoading}
+          >
+            {isLoading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <>
+                <Ionicons name="checkmark" size={20} color="#fff" style={styles.buttonIcon} />
+                <Text style={styles.saveButtonText}>Save</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </Animated.View>
+  );
+
   if (!fontsLoaded) {
     return null;
   }
@@ -584,126 +819,16 @@ export default function ManageUsers() {
         role={selectedRole || ''}
       />
 
-      <Modal
-        visible={showModal}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setShowModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <KeyboardAvoidingView 
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            style={styles.modalContent}
-          >
-            <ScrollView 
-              style={styles.modalScrollContent}
-              contentContainerStyle={{ paddingBottom: 20 }}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-            >
-              <Text style={styles.modalTitle}>
-                {selectedUser ? 'Edit User' : 'Add New User'}
-              </Text>
-              
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>ID Number</Text>
-                <TextInput
-                  style={styles.input}
-                  value={formData.idNumber}
-                  onChangeText={(text) => setFormData({ ...formData, idNumber: text })}
-                  placeholder="Enter ID number"
-                />
-              </View>
-
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>First Name</Text>
-                <TextInput
-                  style={styles.input}
-                  value={formData.firstName}
-                  onChangeText={(text) => setFormData({ ...formData, firstName: text })}
-                  placeholder="Enter first name"
-                />
-              </View>
-
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>Last Name</Text>
-                <TextInput
-                  style={styles.input}
-                  value={formData.lastName}
-                  onChangeText={(text) => setFormData({ ...formData, lastName: text })}
-                  placeholder="Enter last name"
-                />
-              </View>
-
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>Email</Text>
-                <TextInput
-                  style={styles.input}
-                  value={formData.email}
-                  onChangeText={(text) => setFormData({ ...formData, email: text })}
-                  placeholder="Enter email"
-                  keyboardType="email-address"
-                />
-              </View>
-
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>Username</Text>
-                <TextInput
-                  style={styles.input}
-                  value={formData.username}
-                  onChangeText={(text) => setFormData({ ...formData, username: text })}
-                  placeholder="Enter username"
-                />
-              </View>
-
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>Role</Text>
-                <View style={styles.roleContainer}>
-                  {['student', 'lecturer', 'admin'].map((role) => (
-                    <TouchableOpacity
-                      key={role}
-                      style={[
-                        styles.roleButton,
-                        formData.role === role && styles.roleButtonSelected,
-                      ]}
-                      onPress={() => setFormData({ ...formData, role })}
-                    >
-                      <Text
-                        style={[
-                          styles.roleButtonText,
-                          formData.role === role && styles.roleButtonTextSelected,
-                        ]}
-                      >
-                        {role.charAt(0).toUpperCase() + role.slice(1)}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-            </ScrollView>
-
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.cancelButton]}
-                onPress={() => setShowModal(false)}
-              >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.saveButton]}
-                onPress={handleSubmit}
-                disabled={isLoading}
-              >
-                {isLoading ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Text style={styles.saveButtonText}>Save</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </KeyboardAvoidingView>
+      {isDrawerOpen && (
+        <View style={styles.drawerOverlay}>
+          <TouchableOpacity
+            style={styles.drawerBackdrop}
+            activeOpacity={1}
+            onPress={closeDrawer}
+          />
+          {renderDrawer()}
         </View>
-      </Modal>
+      )}
 
       {/* Alert Modal */}
       <Alert
@@ -778,19 +903,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#1a73e8',
-    padding: 15,
-    borderRadius: 12,
+    padding: 16,
+    borderRadius: 16,
     marginBottom: 20,
-    elevation: 3,
-    shadowColor: '#000',
+    elevation: 4,
+    shadowColor: '#1a73e8',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
   },
   addButtonText: {
     color: '#fff',
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '600',
     marginLeft: 8,
   },
   roleCardsContainer: {
@@ -804,81 +929,59 @@ const styles = StyleSheet.create({
   roleCard: {
     flex: 1,
     backgroundColor: '#fff',
-    borderRadius: 12,
+    borderRadius: 16,
     padding: 20,
     marginHorizontal: 5,
-    elevation: 2,
+    elevation: 4,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 2,
+    shadowRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(26, 115, 232, 0.1)',
   },
   roleCardContent: {
+    flexDirection: 'row',
     alignItems: 'center',
   },
   roleIconContainer: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: '#f0f7ff',
+    width: 56,
+    height: 56,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 10,
+    marginRight: 16,
+  },
+  adminIconContainer: {
+    backgroundColor: 'rgba(26, 115, 232, 0.1)',
+  },
+  lecturerIconContainer: {
+    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+  },
+  studentIconContainer: {
+    backgroundColor: 'rgba(255, 152, 0, 0.1)',
+  },
+  roleInfo: {
+    flex: 1,
   },
   roleTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: '700',
     color: '#1a73e8',
-    marginBottom: 5,
+    marginBottom: 4,
   },
   roleCount: {
     fontSize: 14,
     color: '#666',
   },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalContent: {
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 25,
-    width: '90%',
-    maxWidth: 400,
-    maxHeight: '90%',
-    position: 'absolute',
-    top: '5%',
-    left: '5%',
-    right: '5%',
-    bottom: 'auto',
-  },
-  modalScrollContent: {
-    flexGrow: 1,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#1a73e8',
-  },
-  closeButton: {
-    padding: 5,
-  },
-  userList: {
-    maxHeight: '80%',
+  roleArrow: {
+    marginLeft: 8,
   },
   userCard: {
     backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 15,
-    marginBottom: 10,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -886,34 +989,46 @@ const styles = StyleSheet.create({
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
-    shadowRadius: 2,
+    shadowRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(26, 115, 232, 0.1)',
   },
   userInfo: {
     flex: 1,
+    marginRight: 16,
   },
   userName: {
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '600',
     color: '#1a73e8',
     marginBottom: 4,
   },
-  userDetails: {
+  userId: {
+    fontSize: 13,
+    color: '#666',
+    marginBottom: 4,
+  },
+  userEmail: {
     fontSize: 14,
     color: '#666',
   },
   userActions: {
     flexDirection: 'row',
+    alignItems: 'center',
   },
   actionButton: {
-    padding: 8,
-    marginLeft: 10,
-    borderRadius: 8,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
   },
   editButton: {
-    backgroundColor: '#1a73e8',
+    backgroundColor: 'rgba(76, 175, 80, 0.1)',
   },
   deleteButton: {
-    backgroundColor: '#FF3B30',
+    backgroundColor: 'rgba(244, 67, 54, 0.1)',
   },
   inputContainer: {
     marginBottom: 15,
@@ -995,59 +1110,107 @@ const styles = StyleSheet.create({
     color: '#D32F2F',
     fontSize: 14,
   },
-  userEmail: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 4,
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  disabledButton: {
-    opacity: 0.5,
-  },
-  userId: {
-    fontSize: 12,
-    color: '#999',
-    marginTop: 2,
-  },
-  userListModalContent: {
-    height: '90%', // Set modal height to 90% of screen height
+  modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 25,
+    width: '90%',
+    maxWidth: 400,
     maxHeight: '90%',
+    position: 'absolute',
+    top: '5%',
+    left: '5%',
+    right: '5%',
+    bottom: 'auto',
+  },
+  modalScrollContent: {
+    flexGrow: 1,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#1a73e8',
+  },
+  closeButton: {
+    padding: 5,
+  },
+  userList: {
+    maxHeight: '80%',
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#fff',
     borderRadius: 12,
-    paddingHorizontal: 12,
-    marginBottom: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginBottom: 16,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
     borderWidth: 1,
-    borderColor: '#e9ecef',
+    borderColor: 'rgba(26, 115, 232, 0.1)',
   },
   searchInput: {
     flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
     fontSize: 16,
+    color: '#333',
+    marginLeft: 8,
   },
   userStats: {
-    paddingHorizontal: 4,
-    marginBottom: 12,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
   statsText: {
     fontSize: 14,
     color: '#666',
+    textAlign: 'center',
   },
   paginationContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 5,
+    paddingVertical: 16,
     borderTopWidth: 1,
-    borderTopColor: '#eee',
+    borderTopColor: 'rgba(26, 115, 232, 0.1)',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    marginTop: 16,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
   paginationButton: {
-    padding: 8,
-    borderRadius: 8,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
     backgroundColor: '#f8f9fa',
+    marginHorizontal: 8,
   },
   paginationButtonDisabled: {
     opacity: 0.5,
@@ -1056,6 +1219,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     fontSize: 14,
     color: '#666',
+    fontWeight: '500',
   },
   confirmModalContent: {
     backgroundColor: '#fff',
@@ -1102,5 +1266,173 @@ const styles = StyleSheet.create({
   },
   backButton: {
     marginRight: 10,
+  },
+  drawerOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'transparent',
+  },
+  drawerBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  drawer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 5,
+    elevation: 5,
+  },
+  drawerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  drawerHandle: {
+    position: 'absolute',
+    top: 8,
+    width: 40,
+    height: 4,
+    backgroundColor: '#ccc',
+    borderRadius: 2,
+  },
+  drawerTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#002147',
+  },
+  drawerContent: {
+    padding: 20,
+  },
+  formSection: {
+    marginBottom: 32,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#002147',
+    marginLeft: 12,
+  },
+  inputContainer: {
+    marginBottom: 20,
+  },
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+    paddingHorizontal: 12,
+  },
+  inputIcon: {
+    marginRight: 8,
+  },
+  input: {
+    flex: 1,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: '#333',
+  },
+  nameContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  roleContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  roleButton: {
+    flex: 1,
+    padding: 16,
+    borderRadius: 16,
+    backgroundColor: '#f8f9fa',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  roleButtonSelected: {
+    backgroundColor: '#1a73e8',
+    borderColor: '#1a73e8',
+  },
+  roleIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  roleIconContainerSelected: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  roleButtonText: {
+    color: '#666',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  roleButtonTextSelected: {
+    color: '#fff',
+  },
+  drawerButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 20,
+    paddingBottom: 20,
+  },
+  drawerButton: {
+    flex: 1,
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginHorizontal: 5,
+    flexDirection: 'row',
+    justifyContent: 'center',
+  },
+  buttonIcon: {
+    marginRight: 8,
+  },
+  cancelButton: {
+    backgroundColor: '#f8f9fa',
+  },
+  saveButton: {
+    backgroundColor: '#1a73e8',
+  },
+  cancelButtonText: {
+    color: '#666',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  saveButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 }); 

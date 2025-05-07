@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, TextInput, ActivityIndicator, Image, ImageBackground } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, TextInput, ActivityIndicator, Image, ImageBackground, FlatList, Dimensions, Animated, PanResponder } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
@@ -54,6 +54,35 @@ export default function ManageCourses() {
   const [isEditing, setIsEditing] = useState(false);
   const [showEditConfirm, setShowEditConfirm] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [drawerHeight] = useState(new Animated.Value(0));
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const screenHeight = Dimensions.get('window').height;
+  const [page, setPage] = useState(1);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMoreCourses, setHasMoreCourses] = useState(true);
+  const ITEMS_PER_PAGE = 20;
+
+  const panResponder = PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: (_, gestureState) => {
+      return Math.abs(gestureState.dy) > 5;
+    },
+    onPanResponderMove: (_, gestureState) => {
+      if (gestureState.dy > 0) { // Only allow dragging down
+        drawerHeight.setValue(gestureState.dy);
+      }
+    },
+    onPanResponderRelease: (_, gestureState) => {
+      if (gestureState.dy > 100) {
+        closeDrawer();
+      } else {
+        Animated.spring(drawerHeight, {
+          toValue: 0,
+          useNativeDriver: false,
+        }).start();
+      }
+    },
+  });
 
   useEffect(() => {
     fetchLecturers();
@@ -74,21 +103,67 @@ export default function ManageCourses() {
     }
   };
 
-  const fetchCourses = async () => {
+  const fetchCourses = async (pageNumber = 1, shouldAppend = false) => {
     try {
-      setIsLoading(true);
-      const coursesData = await getCourses();
-      setCourses(coursesData);
+      if (pageNumber === 1) {
+        setIsLoading(true);
+      } else {
+        setIsLoadingMore(true);
+      }
+
+      const coursesData = await getCourses(pageNumber, ITEMS_PER_PAGE);
+      
+      if (shouldAppend) {
+        // Filter out any potential duplicates before appending
+        setCourses(prevCourses => {
+          const existingIds = new Set(prevCourses.map(course => course._id));
+          const newCourses = coursesData.filter(course => !existingIds.has(course._id));
+          return [...prevCourses, ...newCourses];
+        });
+      } else {
+        // For fresh loads, just set the data directly
+        setCourses(coursesData);
+      }
+
+      // Check if we have more courses to load
+      setHasMoreCourses(coursesData.length === ITEMS_PER_PAGE);
     } catch (error) {
       console.error('Error fetching courses:', error);
       setError('Failed to fetch courses. Please try again.');
     } finally {
       setIsLoading(false);
+      setIsLoadingMore(false);
     }
   };
 
   const handleBack = () => {
     router.back();
+  };
+
+  const openDrawer = () => {
+    setIsDrawerOpen(true);
+    Animated.spring(drawerHeight, {
+      toValue: screenHeight * 0.9,
+      useNativeDriver: false,
+    }).start();
+  };
+
+  const closeDrawer = () => {
+    Animated.timing(drawerHeight, {
+      toValue: 0,
+      duration: 300,
+      useNativeDriver: false,
+    }).start(() => {
+      setIsDrawerOpen(false);
+      setFormData({
+        courseCode: '',
+        courseName: '',
+        description: '',
+        lecturerId: '',
+        schedules: [],
+      });
+      setSelectedCourse(null);
+    });
   };
 
   const handleAddCourse = () => {
@@ -100,7 +175,7 @@ export default function ManageCourses() {
       lecturerId: '',
       schedules: [],
     });
-    setShowModal(true);
+    openDrawer();
   };
 
   const handleEditCourse = (course: Course) => {
@@ -112,8 +187,7 @@ export default function ManageCourses() {
       lecturerId: course.lecturerId?._id || '',
       schedules: course.schedules,
     });
-    setIsEditing(true);
-    setShowModal(true);
+    openDrawer();
   };
 
   const handleDeletePress = (course: Course) => {
@@ -203,11 +277,53 @@ export default function ManageCourses() {
     }
   };
 
+  const formatTimeInput = (text: string) => {
+    // Remove any non-numeric characters
+    const numbers = text.replace(/[^0-9]/g, '');
+    
+    // Format as HH:MM
+    if (numbers.length <= 2) {
+      return numbers;
+    } else if (numbers.length <= 4) {
+      return `${numbers.slice(0, 2)}:${numbers.slice(2)}`;
+    }
+    return `${numbers.slice(0, 2)}:${numbers.slice(2, 4)}`;
+  };
+
+  const validateTime = (time: string) => {
+    if (!time) return false;
+    
+    const [hours, minutes] = time.split(':').map(Number);
+    
+    if (isNaN(hours) || isNaN(minutes)) return false;
+    if (hours < 0 || hours > 23) return false;
+    if (minutes < 0 || minutes > 59) return false;
+    
+    return true;
+  };
+
   const handleAddSchedule = () => {
-    if (newSchedule.days.length === 0 || !newSchedule.startTime || !newSchedule.endTime) {
-      setError('Please fill in all schedule details');
+    if (newSchedule.days.length === 0) {
+      setError('Please select at least one day');
       return;
     }
+
+    if (!validateTime(newSchedule.startTime) || !validateTime(newSchedule.endTime)) {
+      setError('Please enter valid start and end times');
+      return;
+    }
+
+    // Validate that end time is after start time
+    const [startHours, startMinutes] = newSchedule.startTime.split(':').map(Number);
+    const [endHours, endMinutes] = newSchedule.endTime.split(':').map(Number);
+    const startTotalMinutes = startHours * 60 + startMinutes;
+    const endTotalMinutes = endHours * 60 + endMinutes;
+
+    if (endTotalMinutes <= startTotalMinutes) {
+      setError('End time must be after start time');
+      return;
+    }
+
     setFormData({
       ...formData,
       schedules: [...formData.schedules, newSchedule],
@@ -218,6 +334,7 @@ export default function ManageCourses() {
       endTime: '',
     });
     setShowScheduleModal(false);
+    setError(null);
   };
 
   const handleRemoveSchedule = (index: number) => {
@@ -230,7 +347,13 @@ export default function ManageCourses() {
   };
 
   const handleAssignStudents = (course: Course) => {
+    // Store the current page before navigation
+    const currentPage = page;
+    
+    // Navigate to assign students
     router.push(`/assign-students?courseId=${course._id}`);
+    
+    // When returning, we'll refresh the list through the focus effect
   };
 
   // Clear success message after 3 seconds
@@ -252,6 +375,447 @@ export default function ManageCourses() {
       return () => clearTimeout(timer);
     }
   }, [newCourseId]);
+
+  const generateUniqueKey = (prefix: string, id: string, index?: number) => {
+    return `${prefix}-${id}${index !== undefined ? `-${index}` : ''}`;
+  };
+
+  const renderCourseCard = ({ item: course, index }: { item: Course; index: number }) => (
+    <View 
+      key={generateUniqueKey('course', course._id, index)}
+      style={[
+        styles.courseCard,
+        newCourseId === course._id && styles.highlightedCard
+      ]}
+    >
+      <View style={styles.courseImageContainer}>
+        <Image
+          source={require('../assets/images/c_image.jpg')}
+          style={styles.courseImage}
+        />
+        <View style={styles.courseOverlay}>
+          <View style={styles.courseActions}>
+            <TouchableOpacity 
+              key={generateUniqueKey('edit', course._id)}
+              style={[styles.courseActionButton, styles.editButton]}
+              onPress={() => handleEditCourse(course)}
+            >
+              <Ionicons name="create-outline" size={24} color="#FFD700" />
+            </TouchableOpacity>
+            <TouchableOpacity 
+              key={generateUniqueKey('assign', course._id)}
+              style={[styles.courseActionButton, styles.assignButton]}
+              onPress={() => handleAssignStudents(course)}
+            >
+              <Ionicons name="people-outline" size={24} color="#FFD700" />
+            </TouchableOpacity>
+            <TouchableOpacity 
+              key={generateUniqueKey('delete', course._id)}
+              style={[styles.courseActionButton, styles.deleteButton]}
+              onPress={() => handleDeletePress(course)}
+              disabled={isDeleting}
+            >
+              <Ionicons name="trash-outline" size={24} color="#FFD700" />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+      <View style={styles.courseContent}>
+        <View style={styles.courseHeader}>
+          <View style={styles.courseTitleContainer}>
+            <Text style={styles.courseCode}>{course.courseCode}</Text>
+            <Text style={styles.courseTitle} numberOfLines={1}>{course.courseName}</Text>
+          </View>
+          <View style={styles.instructorBadge}>
+            <Ionicons name="person" size={16} color="#666" />
+            <Text style={styles.instructorText}>
+              {course.lecturerId ? `${course.lecturerId.firstName} ${course.lecturerId.lastName}` : 'Not assigned'}
+            </Text>
+          </View>
+        </View>
+        
+        <View style={styles.schedulesContainer}>
+          {course.schedules.map((schedule, scheduleIndex) => (
+            <View 
+              key={generateUniqueKey('schedule', course._id, scheduleIndex)} 
+              style={styles.scheduleCard}
+            >
+              <View style={styles.scheduleHeader}>
+                <Ionicons name="calendar" size={16} color="#002147" />
+                <Text style={styles.scheduleDays}>{schedule.days.join(', ')}</Text>
+              </View>
+              <View style={styles.scheduleTime}>
+                <Ionicons name="time" size={16} color="#002147" />
+                <Text style={styles.timeText}>{schedule.startTime} - {schedule.endTime}</Text>
+              </View>
+            </View>
+          ))}
+        </View>
+      </View>
+    </View>
+  );
+
+  const renderEmptyList = () => (
+    <View style={styles.emptyState}>
+      <Ionicons name="book-outline" size={48} color="#ccc" />
+      <Text style={styles.emptyStateText}>No courses found</Text>
+    </View>
+  );
+
+  const renderListHeader = () => (
+    <>
+      <TouchableOpacity style={styles.addButton} onPress={handleAddCourse}>
+        <Ionicons name="add-circle" size={24} color="#fff" />
+        <Text style={styles.addButtonText}>Add Course</Text>
+      </TouchableOpacity>
+
+      {successMessage && (
+        <View style={styles.successContainer}>
+          <Ionicons name="checkmark-circle" size={20} color="#4caf50" />
+          <Text style={styles.successText}>{successMessage}</Text>
+        </View>
+      )}
+    </>
+  );
+
+  const renderDrawer = () => (
+    <Animated.View
+      style={[
+        styles.drawer,
+        {
+          height: drawerHeight,
+        },
+      ]}
+    >
+      <View style={styles.drawerHeader} {...panResponder.panHandlers}>
+        <View style={styles.drawerHandle} />
+        <Text style={styles.drawerTitle}>
+          {selectedCourse ? 'Edit Course' : 'Add New Course'}
+        </Text>
+        <TouchableOpacity onPress={closeDrawer} style={styles.closeButton}>
+          <Ionicons name="close" size={24} color="#002147" />
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView 
+        style={styles.drawerContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.formSection}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="book-outline" size={24} color="#1a73e8" />
+            <Text style={styles.sectionTitle}>Course Information</Text>
+          </View>
+          <View style={styles.inputContainer}>
+            <Text style={styles.inputLabel}>Course Code</Text>
+            <View style={styles.inputWrapper}>
+              <Ionicons name="code-outline" size={20} color="#666" style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                value={formData.courseCode}
+                onChangeText={(text) => setFormData({ ...formData, courseCode: text })}
+                placeholder="Enter course code"
+                placeholderTextColor="#999"
+              />
+            </View>
+          </View>
+
+          <View style={styles.inputContainer}>
+            <Text style={styles.inputLabel}>Course Name</Text>
+            <View style={styles.inputWrapper}>
+              <Ionicons name="school-outline" size={20} color="#666" style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                value={formData.courseName}
+                onChangeText={(text) => setFormData({ ...formData, courseName: text })}
+                placeholder="Enter course name"
+                placeholderTextColor="#999"
+              />
+            </View>
+          </View>
+
+          <View style={styles.inputContainer}>
+            <Text style={styles.inputLabel}>Description</Text>
+            <View style={styles.inputWrapper}>
+              <Ionicons name="document-text-outline" size={20} color="#666" style={styles.inputIcon} />
+              <TextInput
+                style={[styles.input, styles.textArea]}
+                value={formData.description}
+                onChangeText={(text) => setFormData({ ...formData, description: text })}
+                placeholder="Enter course description"
+                placeholderTextColor="#999"
+                multiline
+                numberOfLines={4}
+              />
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.formSection}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="person-outline" size={24} color="#1a73e8" />
+            <Text style={styles.sectionTitle}>Lecturer</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.selectContainer}
+            onPress={() => setShowLecturerModal(true)}
+          >
+            <View style={styles.selectContent}>
+              <Ionicons name="person-circle-outline" size={20} color="#666" style={styles.inputIcon} />
+              <Text style={styles.selectText}>
+                {formData.lecturerId
+                  ? lecturers.find(l => l._id === formData.lecturerId)?.firstName + ' ' + lecturers.find(l => l._id === formData.lecturerId)?.lastName
+                  : 'Select lecturer'}
+              </Text>
+              <Ionicons name="chevron-down" size={20} color="#666" />
+            </View>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.formSection}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="calendar-outline" size={24} color="#1a73e8" />
+            <Text style={styles.sectionTitle}>Schedule</Text>
+          </View>
+          <View style={styles.scheduleContainer}>
+            {formData.schedules.map((schedule, index) => (
+              <View 
+                key={generateUniqueKey('form-schedule', `schedule-${index}`, index)} 
+                style={styles.scheduleItem}
+              >
+                <View style={styles.scheduleInfo}>
+                  <Ionicons name="calendar" size={16} color="#1a73e8" />
+                  <Text style={styles.scheduleText}>
+                    {schedule.days.join(', ')} {schedule.startTime}-{schedule.endTime}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.removeButton}
+                  onPress={() => handleRemoveSchedule(index)}
+                >
+                  <Ionicons name="close-circle" size={20} color="#ff4444" />
+                </TouchableOpacity>
+              </View>
+            ))}
+            <TouchableOpacity
+              style={styles.addScheduleButton}
+              onPress={() => setShowScheduleModal(true)}
+            >
+              <Ionicons name="add-circle-outline" size={20} color="#fff" style={styles.buttonIcon} />
+              <Text style={styles.addScheduleButtonText}>Add Schedule</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={styles.drawerButtons}>
+          <TouchableOpacity
+            style={[styles.drawerButton, styles.cancelButton]}
+            onPress={closeDrawer}
+          >
+            <Ionicons name="close" size={20} color="#666" style={styles.buttonIcon} />
+            <Text style={styles.cancelButtonText}>Cancel</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.drawerButton, styles.saveButton]}
+            onPress={handleSubmit}
+            disabled={isSaving}
+          >
+            {isSaving ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <>
+                <Ionicons name="checkmark" size={20} color="#fff" style={styles.buttonIcon} />
+                <Text style={styles.saveButtonText}>Save</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </Animated.View>
+  );
+
+  // Add Lecturer Selection Modal
+  const renderLecturerModal = () => (
+    <Modal
+      visible={showLecturerModal}
+      transparent
+      animationType="slide"
+      onRequestClose={() => setShowLecturerModal(false)}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Select Lecturer</Text>
+            <TouchableOpacity onPress={() => setShowLecturerModal(false)}>
+              <Ionicons name="close" size={24} color="#333" />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.modalList}>
+            {lecturers.map((lecturer) => (
+              <TouchableOpacity
+                key={generateUniqueKey('lecturer', lecturer._id)}
+                style={[
+                  styles.modalItem,
+                  formData.lecturerId === lecturer._id && styles.selectedItem
+                ]}
+                onPress={() => {
+                  setFormData({ ...formData, lecturerId: lecturer._id });
+                  setShowLecturerModal(false);
+                }}
+              >
+                <View style={styles.lecturerInfo}>
+                  <Ionicons name="person-circle" size={24} color="#1a73e8" />
+                  <View style={styles.lecturerDetails}>
+                    <Text style={styles.lecturerName}>
+                      {lecturer.firstName} {lecturer.lastName}
+                    </Text>
+                    <Text style={styles.lecturerEmail}>{lecturer.email}</Text>
+                  </View>
+                </View>
+                {formData.lecturerId === lecturer._id && (
+                  <Ionicons name="checkmark-circle" size={24} color="#1a73e8" />
+                )}
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+
+  // Add Schedule Modal
+  const renderScheduleModal = () => (
+    <Modal
+      visible={showScheduleModal}
+      transparent
+      animationType="slide"
+      onRequestClose={() => setShowScheduleModal(false)}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Add Schedule</Text>
+            <TouchableOpacity onPress={() => setShowScheduleModal(false)}>
+              <Ionicons name="close" size={24} color="#333" />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.scheduleForm}>
+            <Text style={styles.inputLabel}>Days</Text>
+            <View style={styles.daysContainer}>
+              {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => (
+                <TouchableOpacity
+                  key={generateUniqueKey('day', day)}
+                  style={[
+                    styles.dayButton,
+                    newSchedule.days.includes(day) && styles.selectedDay
+                  ]}
+                  onPress={() => {
+                    const updatedDays = newSchedule.days.includes(day)
+                      ? newSchedule.days.filter(d => d !== day)
+                      : [...newSchedule.days, day];
+                    setNewSchedule({ ...newSchedule, days: updatedDays });
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.dayButtonText,
+                      newSchedule.days.includes(day) && styles.selectedDayText
+                    ]}
+                  >
+                    {day}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <View style={styles.timeContainer}>
+              <View style={styles.timeInput}>
+                <Text style={styles.inputLabel}>Start Time</Text>
+                <View style={styles.inputWrapper}>
+                  <Ionicons name="time-outline" size={20} color="#666" style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.input}
+                    value={newSchedule.startTime}
+                    onChangeText={(text) => {
+                      const formattedTime = formatTimeInput(text);
+                      setNewSchedule({ ...newSchedule, startTime: formattedTime });
+                    }}
+                    placeholder="HH:MM"
+                    placeholderTextColor="#999"
+                    keyboardType="number-pad"
+                    maxLength={5}
+                  />
+                </View>
+                {newSchedule.startTime && !validateTime(newSchedule.startTime) && (
+                  <Text style={styles.errorText}>Invalid time format</Text>
+                )}
+              </View>
+              <View style={styles.timeInput}>
+                <Text style={styles.inputLabel}>End Time</Text>
+                <View style={styles.inputWrapper}>
+                  <Ionicons name="time-outline" size={20} color="#666" style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.input}
+                    value={newSchedule.endTime}
+                    onChangeText={(text) => {
+                      const formattedTime = formatTimeInput(text);
+                      setNewSchedule({ ...newSchedule, endTime: formattedTime });
+                    }}
+                    placeholder="HH:MM"
+                    placeholderTextColor="#999"
+                    keyboardType="number-pad"
+                    maxLength={5}
+                  />
+                </View>
+                {newSchedule.endTime && !validateTime(newSchedule.endTime) && (
+                  <Text style={styles.errorText}>Invalid time format</Text>
+                )}
+              </View>
+            </View>
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={() => setShowScheduleModal(false)}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.modalButton,
+                  styles.saveButton,
+                  (!validateTime(newSchedule.startTime) || !validateTime(newSchedule.endTime)) && styles.disabledButton
+                ]}
+                onPress={handleAddSchedule}
+                disabled={!validateTime(newSchedule.startTime) || !validateTime(newSchedule.endTime)}
+              >
+                <Text style={styles.saveButtonText}>Add Schedule</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+
+  // Add this function to handle refresh
+  const handleRefresh = async () => {
+    setPage(1);
+    setHasMoreCourses(true);
+    await fetchCourses(1, false);
+  };
+
+  // Add this function to handle load more
+  const handleLoadMore = async () => {
+    if (!isLoadingMore && hasMoreCourses) {
+      const nextPage = page + 1;
+      setPage(nextPage);
+      await fetchCourses(nextPage, true);
+    }
+  };
 
   if (!fontsLoaded && !fontError) {
     return null;
@@ -280,342 +844,56 @@ export default function ManageCourses() {
       </View>
 
       <View style={styles.content}>
-        <TouchableOpacity style={styles.addButton} onPress={handleAddCourse}>
-          <Ionicons name="add-circle" size={24} color="#fff" />
-          <Text style={styles.addButtonText}>Add Course</Text>
-        </TouchableOpacity>
-
-        {successMessage && (
-          <View style={styles.successContainer}>
-            <Ionicons name="checkmark-circle" size={20} color="#4caf50" />
-            <Text style={styles.successText}>{successMessage}</Text>
+        {isLoading ? (
+          <ActivityIndicator size="large" color="#1a73e8" style={styles.loader} />
+        ) : error ? (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>{error}</Text>
           </View>
+        ) : (
+          <FlatList
+            data={courses}
+            renderItem={renderCourseCard}
+            keyExtractor={(item, index) => generateUniqueKey('course', item._id, index)}
+            contentContainerStyle={styles.courseList}
+            ListHeaderComponent={renderListHeader}
+            ListEmptyComponent={renderEmptyList}
+            showsVerticalScrollIndicator={false}
+            initialNumToRender={10}
+            maxToRenderPerBatch={10}
+            windowSize={5}
+            removeClippedSubviews={true}
+            getItemLayout={(data, index) => ({
+              length: 220,
+              offset: 220 * index,
+              index,
+            })}
+            onEndReached={handleLoadMore}
+            onEndReachedThreshold={0.5}
+            refreshing={isLoading && page === 1}
+            onRefresh={handleRefresh}
+            ListFooterComponent={() => (
+              isLoadingMore ? (
+                <View style={styles.loadingMoreContainer}>
+                  <ActivityIndicator size="small" color="#1a73e8" />
+                  <Text style={styles.loadingMoreText}>Loading more courses...</Text>
+                </View>
+              ) : null
+            )}
+          />
         )}
-
-        <ScrollView 
-          ref={scrollViewRef}
-          style={styles.courseList}
-        >
-          {isLoading ? (
-            <ActivityIndicator size="large" color="#1a73e8" style={styles.loader} />
-          ) : courses.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Ionicons name="book-outline" size={48} color="#ccc" />
-              <Text style={styles.emptyStateText}>No courses found</Text>
-            </View>
-          ) : (
-            courses.map((course) => (
-              <View 
-                key={course._id} 
-                style={[
-                  styles.courseCard,
-                  newCourseId === course._id && styles.highlightedCard
-                ]}
-              >
-                <View style={styles.courseImageContainer}>
-                  <Image
-                    source={require('../assets/images/c_image.jpg')}
-                    style={styles.courseImage}
-                  />
-                </View>
-                <View style={styles.courseContent}>
-                  <Text style={styles.courseTitle}>
-                    {course.courseName} | {course.courseCode}
-                  </Text>
-                  
-                  <View style={styles.courseInfo}>
-                    <View style={styles.infoRow}>
-                      <Text style={styles.infoLabel}>Instructor</Text>
-                      <Text style={styles.infoValue}>
-                        {course.lecturerId ? `${course.lecturerId.firstName} ${course.lecturerId.lastName}` : 'Not assigned'}
-                      </Text>
-                    </View>
-
-                    {course.schedules.map((schedule, index) => (
-                      <View key={index}>
-                        <View style={styles.infoRow}>
-                          <Text style={styles.infoLabel}>Day</Text>
-                          <Text style={styles.infoValue}>{schedule.days.join(', ')}</Text>
-                        </View>
-                        <View style={styles.infoRow}>
-                          <Text style={styles.infoLabel}>Time</Text>
-                          <Text style={styles.infoValue}>{schedule.startTime} - {schedule.endTime}</Text>
-                        </View>
-                      </View>
-                    ))}
-                  </View>
-
-                  <View style={styles.cardActions}>
-                    <View style={styles.actionButtonGroup}>
-                      <TouchableOpacity 
-                        style={[styles.actionButton, styles.editButton]}
-                        onPress={() => handleEditCourse(course)}
-                      >
-                        <Ionicons name="create-outline" size={20} color="#1a73e8" />
-                        <Text style={styles.editButtonText}>Edit</Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity 
-                        style={[styles.actionButton, styles.assignButton]}
-                        onPress={() => handleAssignStudents(course)}
-                      >
-                        <Ionicons name="people-outline" size={20} color="#4caf50" />
-                        <Text style={styles.assignButtonText}>Students</Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity 
-                        style={[styles.actionButton, styles.deleteButton, isDeleting && styles.actionButtonDisabled]}
-                        onPress={() => handleDeletePress(course)}
-                        disabled={isDeleting}
-                      >
-                        <Ionicons name="trash-outline" size={20} color="#dc3545" />
-                        <Text style={styles.deleteButtonText}>Delete</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                </View>
-              </View>
-            ))
-          )}
-        </ScrollView>
       </View>
 
-      <Modal
-        visible={showModal}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => {
-          setShowModal(false);
-          setSelectedCourse(null);
-          setFormData({
-            courseCode: '',
-            courseName: '',
-            description: '',
-            lecturerId: '',
-            schedules: [],
-          });
-        }}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>
-              {selectedCourse ? 'Edit Course' : 'Add New Course'}
-            </Text>
-            
-            <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>Course Code</Text>
-              <TextInput
-                style={styles.input}
-                value={formData.courseCode}
-                onChangeText={(text) => setFormData({ ...formData, courseCode: text })}
-                placeholder="Enter course code"
-              />
-            </View>
-
-            <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>Course Name</Text>
-              <TextInput
-                style={styles.input}
-                value={formData.courseName}
-                onChangeText={(text) => setFormData({ ...formData, courseName: text })}
-                placeholder="Enter course name"
-              />
-            </View>
-
-            <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>Description</Text>
-              <TextInput
-                style={[styles.input, styles.textArea]}
-                value={formData.description}
-                onChangeText={(text) => setFormData({ ...formData, description: text })}
-                placeholder="Enter course description"
-                multiline
-                numberOfLines={4}
-              />
-            </View>
-
-            <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>Lecturer</Text>
-              <View style={styles.selectContainer}>
-                <TouchableOpacity
-                  style={styles.select}
-                  onPress={() => {
-                    setShowLecturerModal(true);
-                  }}
-                >
-                  <Text style={styles.selectText}>
-                    {formData.lecturerId
-                      ? lecturers.find(l => l._id === formData.lecturerId)?.firstName + ' ' + lecturers.find(l => l._id === formData.lecturerId)?.lastName
-                      : 'Select lecturer'}
-                  </Text>
-                  <Ionicons name="chevron-down" size={20} color="#666" />
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>Schedule</Text>
-              <View style={styles.scheduleContainer}>
-                {formData.schedules.map((schedule, index) => (
-                  <View key={index} style={styles.scheduleItem}>
-                    <Text style={styles.scheduleText}>
-                      {schedule.days.join(', ')} {schedule.startTime}-{schedule.endTime}
-                    </Text>
-                    <TouchableOpacity
-                      style={styles.removeButton}
-                      onPress={() => handleRemoveSchedule(index)}
-                    >
-                      <Ionicons name="close-circle" size={20} color="#ff4444" />
-                    </TouchableOpacity>
-                  </View>
-                ))}
-                <TouchableOpacity
-                  style={styles.addScheduleButton}
-                  onPress={() => setShowScheduleModal(true)}
-                >
-                  <Text style={styles.addScheduleButtonText}>Add Schedule</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.cancelButton]}
-                onPress={() => setShowModal(false)}
-              >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.saveButton]}
-                onPress={handleSubmit}
-                disabled={isSaving}
-              >
-                {isSaving ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Text style={styles.saveButtonText}>Save</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
+      {isDrawerOpen && (
+        <View style={styles.drawerOverlay}>
+          <TouchableOpacity
+            style={styles.drawerBackdrop}
+            activeOpacity={1}
+            onPress={closeDrawer}
+          />
+          {renderDrawer()}
         </View>
-      </Modal>
-
-      <Modal
-        visible={showLecturerModal}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setShowLecturerModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Select Lecturer</Text>
-              <TouchableOpacity onPress={() => setShowLecturerModal(false)}>
-                <Ionicons name="close" size={24} color="#666" />
-              </TouchableOpacity>
-            </View>
-            
-            <ScrollView style={styles.modalList}>
-              {lecturers.map((lecturer) => (
-                <TouchableOpacity
-                  key={lecturer._id}
-                  style={styles.modalItem}
-                  onPress={() => {
-                    setFormData({ ...formData, lecturerId: lecturer._id });
-                    setShowLecturerModal(false);
-                  }}
-                >
-                  <Text style={styles.modalItemText}>
-                    {lecturer.firstName} {lecturer.lastName}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal
-        visible={showScheduleModal}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setShowScheduleModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Add Schedule</Text>
-              <TouchableOpacity onPress={() => setShowScheduleModal(false)}>
-                <Ionicons name="close" size={24} color="#666" />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>Days</Text>
-              <View style={styles.daysContainer}>
-                {['M', 'T', 'W', 'Th', 'F'].map((day) => (
-                  <TouchableOpacity
-                    key={day}
-                    style={[
-                      styles.dayButton,
-                      newSchedule.days.includes(day) && styles.selectedDay,
-                    ]}
-                    onPress={() => {
-                      const updatedDays = newSchedule.days.includes(day)
-                        ? newSchedule.days.filter(d => d !== day)
-                        : [...newSchedule.days, day];
-                      setNewSchedule({ ...newSchedule, days: updatedDays });
-                    }}
-                  >
-                    <Text style={[
-                      styles.dayButtonText,
-                      newSchedule.days.includes(day) && styles.selectedDayText,
-                    ]}>
-                      {day}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-
-            <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>Start Time</Text>
-              <TextInput
-                style={styles.input}
-                value={newSchedule.startTime}
-                onChangeText={(text) => setNewSchedule({ ...newSchedule, startTime: text })}
-                placeholder="HH:MM AM/PM"
-              />
-            </View>
-
-            <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>End Time</Text>
-              <TextInput
-                style={styles.input}
-                value={newSchedule.endTime}
-                onChangeText={(text) => setNewSchedule({ ...newSchedule, endTime: text })}
-                placeholder="HH:MM AM/PM"
-              />
-            </View>
-
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.cancelButton]}
-                onPress={() => setShowScheduleModal(false)}
-              >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.saveButton]}
-                onPress={handleAddSchedule}
-              >
-                <Text style={styles.saveButtonText}>Add Schedule</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      )}
 
       {/* Delete Confirmation Modal */}
       <Modal
@@ -713,11 +991,8 @@ export default function ManageCourses() {
         </View>
       </Modal>
 
-      {error && (
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>{error}</Text>
-        </View>
-      )}
+      {renderLecturerModal()}
+      {renderScheduleModal()}
     </View>
   );
 }
@@ -786,23 +1061,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#1a73e8',
-    padding: 15,
-    borderRadius: 12,
-    marginBottom: 20,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    padding: 16,
+    borderRadius: 16,
+    marginBottom: 24,
+    elevation: 4,
+    shadowColor: '#1a73e8',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
   },
   addButtonText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: 'bold',
-    marginLeft: 8,
+    marginLeft: 10,
   },
   courseList: {
-    flex: 1,
+    paddingBottom: 20,
+    minHeight: '100%',
   },
   modalOverlay: {
     flex: 1,
@@ -812,8 +1088,8 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 25,
+    borderRadius: 24,
+    padding: 24,
     width: '90%',
     maxWidth: 400,
     maxHeight: '90%',
@@ -824,8 +1100,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-    marginBottom: 16,
+    borderBottomColor: '#e9ecef',
+    marginBottom: 20,
   },
   modalTitle: {
     fontSize: 20,
@@ -835,20 +1111,31 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   inputContainer: {
-    marginBottom: 15,
+    marginBottom: 18,
   },
   inputLabel: {
-    fontSize: 14,
+    fontSize: 15,
     color: '#666',
-    marginBottom: 8,
+    marginBottom: 10,
+    fontWeight: '500',
   },
-  input: {
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#f8f9fa',
-    borderRadius: 12,
-    padding: 12,
-    fontSize: 16,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: '#e9ecef',
+    paddingHorizontal: 16,
+  },
+  inputIcon: {
+    marginRight: 8,
+  },
+  input: {
+    flex: 1,
+    paddingVertical: 14,
+    fontSize: 16,
+    color: '#333',
   },
   textArea: {
     height: 100,
@@ -857,20 +1144,27 @@ const styles = StyleSheet.create({
   modalButtons: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 20,
+    marginTop: 24,
   },
   modalButton: {
     flex: 1,
-    padding: 15,
-    borderRadius: 12,
+    padding: 16,
+    borderRadius: 14,
     alignItems: 'center',
-    marginHorizontal: 5,
+    marginHorizontal: 6,
   },
   cancelButton: {
     backgroundColor: '#f8f9fa',
+    borderWidth: 1,
+    borderColor: '#e9ecef',
   },
   saveButton: {
     backgroundColor: '#1a73e8',
+    elevation: 4,
+    shadowColor: '#1a73e8',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
   },
   cancelButtonText: {
     color: '#666',
@@ -883,270 +1177,266 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   errorContainer: {
-    backgroundColor: '#FFEBEE',
-    padding: 10,
-    borderRadius: 5,
-    marginBottom: 10,
+    backgroundColor: '#ffebee',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#ffcdd2',
   },
   errorText: {
-    color: '#D32F2F',
-    fontSize: 14,
+    color: '#c62828',
+    fontSize: 15,
+    fontWeight: '500',
   },
   selectContainer: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    marginBottom: 16,
+    borderColor: '#e9ecef',
+    marginBottom: 20,
   },
-  select: {
+  selectContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     padding: 12,
   },
   selectText: {
+    flex: 1,
     fontSize: 16,
     color: '#333',
-  },
-  modalList: {
-    maxHeight: 300,
-  },
-  modalItem: {
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-  },
-  modalItemText: {
-    fontSize: 16,
-    color: '#333',
+    marginLeft: 8,
   },
   scheduleContainer: {
-    marginTop: 8,
+    gap: 10,
   },
   scheduleItem: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: '#f8f9fa',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 8,
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  scheduleInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
   scheduleText: {
-    fontSize: 14,
+    fontSize: 15,
     color: '#333',
-  },
-  removeButton: {
-    padding: 4,
+    fontWeight: '600',
   },
   addScheduleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: '#1a73e8',
     padding: 12,
-    borderRadius: 8,
-    alignItems: 'center',
+    borderRadius: 12,
+    marginTop: 8,
   },
   addScheduleButtonText: {
     color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  modalList: {
+    maxHeight: 400,
+  },
+  modalItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  selectedItem: {
+    backgroundColor: '#f0f7ff',
+  },
+  lecturerInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  lecturerDetails: {
+    flex: 1,
+  },
+  lecturerName: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#333',
+  },
+  lecturerEmail: {
     fontSize: 14,
-    fontWeight: 'bold',
+    color: '#666',
+  },
+  scheduleForm: {
+    padding: 20,
+  },
+  timeContainer: {
+    flexDirection: 'row',
+    gap: 16,
+    marginTop: 16,
+  },
+  timeInput: {
+    flex: 1,
   },
   daysContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 16,
+    flexWrap: 'wrap',
+    gap: 10,
+    marginTop: 12,
   },
   dayButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     backgroundColor: '#f8f9fa',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: '#e9ecef',
   },
   selectedDay: {
     backgroundColor: '#1a73e8',
     borderColor: '#1a73e8',
   },
   dayButtonText: {
-    fontSize: 14,
-    color: '#333',
+    fontSize: 15,
+    color: '#666',
+    fontWeight: '500',
   },
   selectedDayText: {
     color: '#fff',
   },
-  loader: {
-    marginTop: 20,
-  },
-  emptyState: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20,
-    marginTop: 20,
-  },
-  emptyStateText: {
-    fontSize: 16,
-    color: '#666',
-    marginTop: 10,
-  },
-  courseCard: {
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    marginBottom: 16,
-    overflow: 'hidden',
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
-  courseImageContainer: {
-    height: 80,
-    overflow: 'hidden',
-  },
-  courseImage: {
-    width: '100%',
-    height: '280%',
+  drawerOverlay: {
     position: 'absolute',
     top: 0,
-    opacity: 0.5
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'transparent',
   },
-  courseContent: {
-    padding: 20,
+  drawerBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  drawer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: '#fff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
   },
-  courseTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#1a73e8',
-    marginBottom: 12,
-  },
-  courseInfo: {
-    flex: 1,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 0,
-  },
-  infoLabel: {
-    width: 80,
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-  },
-  infoValue: {
-    flex: 1,
-    fontSize: 16,
-    color: '#666',
-  },
-  successContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#e8f5e9',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 16,
-  },
-  successText: {
-    color: '#4caf50',
-    fontSize: 16,
-    marginLeft: 8,
-  },
-  highlightedCard: {
-    backgroundColor: '#e3f2fd',
-    borderColor: '#1a73e8',
-    borderWidth: 1,
-    transform: [{ scale: 1.02 }],
-  },
-  cardActions: {
-    marginTop: 16,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
-  },
-  actionButtonGroup: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  actionButton: {
+  drawerHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    flex: 1,
-    marginHorizontal: 4,
-    elevation: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e9ecef',
   },
-  actionButtonDisabled: {
-    opacity: 0.6,
+  drawerHandle: {
+    position: 'absolute',
+    top: 10,
+    width: 48,
+    height: 4,
+    backgroundColor: '#e0e0e0',
+    borderRadius: 2,
   },
-  editButton: {
-    backgroundColor: '#e3f2fd',
-    borderWidth: 1,
-    borderColor: '#1a73e8',
+  drawerTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#002147',
   },
-  assignButton: {
-    backgroundColor: '#e8f5e9',
-    borderWidth: 1,
-    borderColor: '#4caf50',
+  closeButton: {
+    position: 'absolute',
+    right: 16,
+    padding: 4,
   },
-  deleteButton: {
-    backgroundColor: '#ffebee',
-    borderWidth: 1,
-    borderColor: '#dc3545',
-  },
-  editButtonText: {
-    color: '#1a73e8',
-    marginLeft: 4,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  assignButtonText: {
-    color: '#4caf50',
-    marginLeft: 4,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  deleteButtonText: {
-    color: '#dc3545',
-    marginLeft: 4,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  confirmModal: {
-    width: '90%',
-    maxWidth: 400,
+  drawerContent: {
     padding: 24,
   },
-  confirmHeader: {
+  drawerButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 24,
+    paddingBottom: 24,
+  },
+  drawerButton: {
+    flex: 1,
+    padding: 16,
+    borderRadius: 14,
     alignItems: 'center',
+    marginHorizontal: 6,
+  },
+  saveButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  saveButton: {
+    backgroundColor: '#1a73e8',
+    elevation: 4,
+    shadowColor: '#1a73e8',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+  },
+  cancelButtonText: {
+    color: '#666',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  saveConfirmText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  saveConfirmButton: {
+    backgroundColor: '#1a73e8',
+  },
+  cancelConfirmButton: {
+    backgroundColor: '#f8f9fa',
+  },
+  confirmModal: {
+    padding: 20,
+  },
+  confirmHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 16,
   },
   confirmTitle: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: 'bold',
-    color: '#dc3545',
-    marginTop: 8,
+    color: '#1a73e8',
   },
   confirmText: {
+    color: '#333',
     fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    lineHeight: 24,
-    marginBottom: 24,
+    marginBottom: 16,
   },
   confirmHighlight: {
     fontWeight: 'bold',
-    color: '#333',
   },
   confirmButtons: {
     flexDirection: 'row',
@@ -1154,35 +1444,228 @@ const styles = StyleSheet.create({
   },
   confirmButton: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 8,
+    padding: 15,
+    borderRadius: 12,
     alignItems: 'center',
-    marginHorizontal: 8,
-  },
-  cancelConfirmButton: {
-    backgroundColor: '#f8f9fa',
-    borderWidth: 1,
-    borderColor: '#ddd',
+    marginHorizontal: 5,
   },
   deleteConfirmButton: {
     backgroundColor: '#dc3545',
   },
-  cancelConfirmText: {
-    color: '#666',
-    fontSize: 16,
-    fontWeight: '600',
-  },
   deleteConfirmText: {
     color: '#fff',
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: 'bold',
   },
-  saveConfirmButton: {
-    backgroundColor: '#1a73e8',
-  },
-  saveConfirmText: {
-    color: '#fff',
+  cancelConfirmText: {
+    color: '#666',
     fontSize: 16,
+    fontWeight: 'bold',
+  },
+  formSection: {
+    marginBottom: 24,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  sectionTitle: {
+    fontSize: 17,
+    fontWeight: 'bold',
+    color: '#1a73e8',
+    marginLeft: 10,
+  },
+  buttonIcon: {
+    marginRight: 8,
+  },
+  errorText: {
+    color: '#dc3545',
+    fontSize: 12,
+    marginTop: 4,
+  },
+  disabledButton: {
+    opacity: 0.5,
+  },
+  timeInput: {
+    flex: 1,
+  },
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+    paddingHorizontal: 12,
+  },
+  inputIcon: {
+    marginRight: 8,
+  },
+  input: {
+    flex: 1,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: '#333',
+  },
+  courseCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    marginBottom: 16,
+    overflow: 'hidden',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  courseImageContainer: {
+    height: 100,
+    position: 'relative',
+  },
+  courseImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  courseOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    justifyContent: 'flex-end',
+    padding: 10,
+  },
+  courseActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 8,
+  },
+  courseActionButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  courseContent: {
+    padding: 12,
+  },
+  courseHeader: {
+    marginBottom: 10,
+  },
+  courseTitleContainer: {
+    marginBottom: 6,
+  },
+  courseCode: {
+    fontSize: 13,
+    color: '#1a73e8',
+    marginBottom: 4,
     fontWeight: '600',
+  },
+  courseTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#002147',
+    lineHeight: 20,
+  },
+  instructorBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f0f7ff',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: '#e3f2fd',
+  },
+  instructorText: {
+    fontSize: 12,
+    color: '#1a73e8',
+    marginLeft: 4,
+    fontWeight: '500',
+  },
+  schedulesContainer: {
+    gap: 6,
+  },
+  scheduleCard: {
+    backgroundColor: '#f8f9fa',
+    padding: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  scheduleHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  scheduleDays: {
+    fontSize: 13,
+    color: '#002147',
+    marginLeft: 6,
+    fontWeight: '600',
+  },
+  scheduleTime: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  timeText: {
+    fontSize: 13,
+    color: '#002147',
+    marginLeft: 6,
+    fontWeight: '500',
+  },
+  highlightedCard: {
+    borderWidth: 2,
+    borderColor: '#1a73e8',
+    transform: [{ scale: 1.02 }],
+  },
+  successContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#e8f5e9',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#c8e6c9',
+  },
+  successText: {
+    color: '#2e7d32',
+    fontSize: 15,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 40,
+  },
+  emptyStateText: {
+    color: '#666',
+    fontSize: 16,
+    fontWeight: '500',
+    marginTop: 12,
+  },
+  loader: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingMoreContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    gap: 8,
+  },
+  loadingMoreText: {
+    color: '#666',
+    fontSize: 14,
+    fontWeight: '500',
   },
 }); 

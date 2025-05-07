@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, Modal, BackHandler } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, Modal, BackHandler, Animated } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
@@ -13,12 +13,13 @@ export default function AdminDashboard() {
   });
 
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [cardScale] = useState(new Animated.Value(1));
 
   // Handle back button press
   useEffect(() => {
     const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
       setShowLogoutConfirm(true);
-      return true; // Prevent default back behavior
+      return true;
     });
 
     return () => backHandler.remove();
@@ -44,6 +45,20 @@ export default function AdminDashboard() {
 
   const handleManageCourses = () => {
     router.push('/manage-courses');
+  };
+
+  const handlePressIn = () => {
+    Animated.spring(cardScale, {
+      toValue: 0.95,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const handlePressOut = () => {
+    Animated.spring(cardScale, {
+      toValue: 1,
+      useNativeDriver: true,
+    }).start();
   };
 
   if (!fontsLoaded && !fontError) {
@@ -72,37 +87,69 @@ export default function AdminDashboard() {
         <Text style={styles.welcomeText}>Admin Dashboard</Text>
       </View>
 
-      <ScrollView style={styles.content}>
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.cardContainer}>
-          <TouchableOpacity 
-            style={styles.card}
-            onPress={handleManageUsers}
-          >
-            <View style={styles.cardIconContainer}>
-              <Ionicons name="people" size={32} color="#1a73e8" />
-            </View>
-            <Text style={styles.cardTitle}>Manage Users</Text>
-            <Text style={styles.cardDescription}>Add, edit, and remove users</Text>
-          </TouchableOpacity>
+          <Animated.View style={{ transform: [{ scale: cardScale }] }}>
+            <TouchableOpacity 
+              style={styles.card}
+              onPress={handleManageUsers}
+              onPressIn={handlePressIn}
+              onPressOut={handlePressOut}
+              activeOpacity={0.9}
+            >
+              <View style={[styles.cardIconContainer, styles.usersIconContainer]}>
+                <Ionicons name="people" size={32} color="#1a73e8" />
+              </View>
+              <View style={styles.cardContent}>
+                <Text style={styles.cardTitle}>Manage Users</Text>
+                <Text style={styles.cardDescription}>Add, edit, and remove users</Text>
+              </View>
+              <View style={styles.cardArrow}>
+                <Ionicons name="chevron-forward" size={24} color="#1a73e8" />
+              </View>
+            </TouchableOpacity>
+          </Animated.View>
 
-          <TouchableOpacity 
-            style={styles.card}
-            onPress={handleManageCourses}
-          >
-            <View style={styles.cardIconContainer}>
-              <Ionicons name="book" size={32} color="#1a73e8" />
-            </View>
-            <Text style={styles.cardTitle}>Manage Courses</Text>
-            <Text style={styles.cardDescription}>Add, edit, and manage courses</Text>
-          </TouchableOpacity>
+          <Animated.View style={{ transform: [{ scale: cardScale }] }}>
+            <TouchableOpacity 
+              style={styles.card}
+              onPress={handleManageCourses}
+              onPressIn={handlePressIn}
+              onPressOut={handlePressOut}
+              activeOpacity={0.9}
+            >
+              <View style={[styles.cardIconContainer, styles.coursesIconContainer]}>
+                <Ionicons name="book" size={32} color="#1a73e8" />
+              </View>
+              <View style={styles.cardContent}>
+                <Text style={styles.cardTitle}>Manage Courses</Text>
+                <Text style={styles.cardDescription}>Add, edit, and manage courses</Text>
+              </View>
+              <View style={styles.cardArrow}>
+                <Ionicons name="chevron-forward" size={24} color="#1a73e8" />
+              </View>
+            </TouchableOpacity>
+          </Animated.View>
 
-          <TouchableOpacity style={styles.card}>
-            <View style={styles.cardIconContainer}>
-              <Ionicons name="settings" size={32} color="#1a73e8" />
-            </View>
-            <Text style={styles.cardTitle}>Settings</Text>
-            <Text style={styles.cardDescription}>Configure system settings</Text>
-          </TouchableOpacity>
+          <Animated.View style={{ transform: [{ scale: cardScale }] }}>
+            <TouchableOpacity 
+              style={styles.card}
+              onPressIn={handlePressIn}
+              onPressOut={handlePressOut}
+              activeOpacity={0.9}
+            >
+              <View style={[styles.cardIconContainer, styles.settingsIconContainer]}>
+                <Ionicons name="settings" size={32} color="#1a73e8" />
+              </View>
+              <View style={styles.cardContent}>
+                <Text style={styles.cardTitle}>Settings</Text>
+                <Text style={styles.cardDescription}>Configure system settings</Text>
+              </View>
+              <View style={styles.cardArrow}>
+                <Ionicons name="chevron-forward" size={24} color="#1a73e8" />
+              </View>
+            </TouchableOpacity>
+          </Animated.View>
         </View>
       </ScrollView>
 
@@ -206,41 +253,55 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   cardContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
+    gap: 16,
   },
   card: {
-    width: '48%',
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#fff',
-    borderRadius: 15,
+    borderRadius: 16,
     padding: 20,
-    marginBottom: 20,
-    elevation: 3,
+    elevation: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 4,
+    shadowRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(26, 115, 232, 0.1)',
   },
   cardIconContainer: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: 'rgba(26, 115, 232, 0.1)',
+    width: 56,
+    height: 56,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 15,
+    marginRight: 16,
+  },
+  usersIconContainer: {
+    backgroundColor: 'rgba(26, 115, 232, 0.1)',
+  },
+  coursesIconContainer: {
+    backgroundColor: 'rgba(26, 115, 232, 0.1)',
+  },
+  settingsIconContainer: {
+    backgroundColor: 'rgba(26, 115, 232, 0.1)',
+  },
+  cardContent: {
+    flex: 1,
   },
   cardTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: '700',
     color: '#1a73e8',
-    marginBottom: 8,
+    marginBottom: 4,
   },
   cardDescription: {
     fontSize: 14,
     color: '#666',
     lineHeight: 20,
+  },
+  cardArrow: {
+    marginLeft: 8,
   },
   modalOverlay: {
     flex: 1,

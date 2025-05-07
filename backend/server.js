@@ -7,6 +7,7 @@ const User = require('./models/User');
 const LoginLog = require('./models/LoginLog');
 const nodemailer = require('nodemailer');
 const Course = require('./models/Course');
+const Attendance = require('./models/Attendance');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -548,6 +549,117 @@ app.delete('/api/courses/:id', async (req, res) => {
   } catch (error) {
     console.error('Delete course error:', error);
     res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Generate QR code for attendance
+app.post('/api/attendance/generate-qr', async (req, res) => {
+  try {
+    const { courseId, lecturerId } = req.body;
+
+    // Validate course and lecturer
+    const course = await Course.findById(courseId);
+    if (!course) {
+      return res.status(404).json({ message: 'Course not found' });
+    }
+
+    if (course.lecturerId.toString() !== lecturerId) {
+      return res.status(403).json({ message: 'Unauthorized to generate QR for this course' });
+    }
+
+    const now = new Date();
+    const phTime = new Date(now.getTime() + (8 * 60 * 60 * 1000)); // Convert to PH time (UTC+8)
+    const expiryTime = new Date(phTime.getTime() + (60 * 60 * 1000)); // 1 hour from now
+
+    const qrData = JSON.stringify({
+      courseId: course._id,
+      courseCode: course.courseCode,
+      courseName: course.courseName,
+      generatedAt: phTime.toISOString(),
+      expiresAt: expiryTime.toISOString()
+    });
+
+    // Create attendance record
+    const attendance = new Attendance({
+      courseId: course._id,
+      lecturerId: lecturerId,
+      qrCodeData: qrData,
+      generatedAt: phTime,
+      expiresAt: expiryTime
+    });
+
+    await attendance.save();
+
+    res.json({
+      qrData,
+      generatedAt: phTime,
+      expiresAt: expiryTime
+    });
+  } catch (error) {
+    console.error('Generate QR error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Record attendance from QR scan
+app.post('/api/attendance/scan', async (req, res) => {
+  try {
+    const { qrData, studentId } = req.body;
+    const qrInfo = JSON.parse(qrData);
+
+    // Validate QR code expiration
+    const now = new Date();
+    const phTime = new Date(now.getTime() + (8 * 60 * 60 * 1000)); // Current PH time
+    if (new Date(qrInfo.expiresAt) <= phTime) {
+      return res.status(400).json({ message: 'QR code has expired' });
+    }
+
+    // Find the attendance record
+    const attendance = await Attendance.findOne({
+      courseId: qrInfo.courseId,
+      generatedAt: new Date(qrInfo.generatedAt)
+    });
+
+    if (!attendance) {
+      return res.status(404).json({ message: 'Attendance record not found' });
+    }
+
+    // Check if student has already scanned
+    const hasScanned = attendance.scannedBy.some(
+      scan => scan.studentId.toString() === studentId
+    );
+
+    if (hasScanned) {
+      return res.status(400).json({ message: 'You have already scanned this QR code' });
+    }
+
+    // Add student to scannedBy array
+    attendance.scannedBy.push({
+      studentId: studentId,
+      scannedAt: phTime
+    });
+
+    await attendance.save();
+
+    res.json({ message: 'Attendance recorded successfully' });
+  } catch (error) {
+    console.error('Scan QR error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Get attendance records for a course
+app.get('/api/attendance/course/:courseId', async (req, res) => {
+  try {
+    const { courseId } = req.params;
+    const attendanceRecords = await Attendance.find({ courseId })
+      .populate('scannedBy.studentId', 'firstName lastName idNumber')
+      .sort({ generatedAt: -1 });
+
+    res.json(attendanceRecords);
+  } catch (error) {
+    console.error('Get attendance records error:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
