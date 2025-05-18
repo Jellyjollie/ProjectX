@@ -93,7 +93,10 @@ export default function ManageCourses() {
     try {
       setIsLoading(true);
       const users = await getUsers();
-      const lecturerUsers = users.filter(user => user.role === 'lecturer');
+      const lecturerUsers = users.filter(user => 
+        user.role === 'lecturer' || 
+        (Array.isArray(user.roles) && user.roles.includes('lecturer'))
+      );
       setLecturers(lecturerUsers);
     } catch (error) {
       console.error('Error fetching lecturers:', error);

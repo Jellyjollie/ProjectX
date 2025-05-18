@@ -33,6 +33,11 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const isNavigating = useRef(false);
 
+  // Role selection modal states
+  const [showRoleSelectionModal, setShowRoleSelectionModal] = useState(false);
+  const [availableRoles, setAvailableRoles] = useState<string[]>([]);
+  const [selectedRoleIndex, setSelectedRoleIndex] = useState<number | null>(null);
+
   // Forgot password states
   const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false);
   const [email, setEmail] = useState('');
@@ -57,33 +62,94 @@ export default function LoginScreen() {
         await AsyncStorage.setItem('user', JSON.stringify(userData));
         console.log('User data stored successfully');
         
-        // Navigate based on user role
-        switch (userData.role) {
-          case 'admin':
-            router.push('/admin-dashboard');
-            break;
-          case 'lecturer':
-            router.push(`/lecturer-dashboard?id=${userData._id}`);
-            break;
-          case 'student':
-            router.push(`/student-dashboard?id=${userData._id}`);
-            break;
+        // Check if user has multiple roles
+        if (userData.roles && userData.roles.length > 1) {
+          console.log('User has multiple roles:', userData.roles);
+          setAvailableRoles(userData.roles);
+          setShowRoleSelectionModal(true);
+          return;
         }
+        
+        // Navigate based on user role (using single role)
+        navigateToRoleDashboard(userData.role);
       } catch (error) {
         console.error('Error storing user data:', error);
         // Continue with navigation even if storage fails
-        switch (userData.role) {
-          case 'admin':
-            router.push('/admin-dashboard');
-            break;
-          case 'lecturer':
-            router.push(`/lecturer-dashboard?id=${userData._id}`);
-            break;
-          case 'student':
-            router.push(`/student-dashboard?id=${userData._id}`);
-            break;
+        if (userData.roles && userData.roles.length > 1) {
+          setAvailableRoles(userData.roles);
+          setShowRoleSelectionModal(true);
+        } else {
+          navigateToRoleDashboard(userData.role);
         }
       }
+    }
+  };
+
+  // Helper function to navigate based on role
+  const navigateToRoleDashboard = (role: string) => {
+    switch (role) {
+      case 'admin':
+        router.push('/admin-dashboard');
+        break;
+      case 'lecturer':
+        router.push(`/lecturer-dashboard?id=${userData._id}`);
+        break;
+      case 'student':
+        router.push(`/student-dashboard?id=${userData._id}`);
+        break;
+    }
+  };
+
+  // Handler for role selection
+  const handleRoleSelect = async (selectedRole: string, index: number) => {
+    try {
+      // Highlight the selected role
+      setSelectedRoleIndex(index);
+      
+      // Delay navigation to show the selection
+      setTimeout(async () => {
+        // Store the active role the user selected
+        await AsyncStorage.setItem('activeRole', selectedRole);
+        
+        // Get stored user data to update with active role
+        const storedUserData = await AsyncStorage.getItem('user');
+        if (storedUserData) {
+          const userObj = JSON.parse(storedUserData);
+          userObj.activeRole = selectedRole;
+          await AsyncStorage.setItem('user', JSON.stringify(userObj));
+        }
+        
+        setShowRoleSelectionModal(false);
+        navigateToRoleDashboard(selectedRole);
+      }, 300); // Short delay for visual feedback
+    } catch (error) {
+      console.error('Error saving selected role:', error);
+      // Continue with navigation even if storage fails
+      setShowRoleSelectionModal(false);
+      navigateToRoleDashboard(selectedRole);
+    }
+  };
+
+  // Handler for canceling role selection and returning to login
+  const handleCancelRoleSelection = async () => {
+    try {
+      // Clear user data from AsyncStorage
+      await AsyncStorage.removeItem('user');
+      // Reset states
+      setShowRoleSelectionModal(false);
+      setUserData(null);
+      setUsername('');
+      setPassword('');
+      setAvailableRoles([]);
+      setSelectedRoleIndex(null);
+      isNavigating.current = false;
+    } catch (error) {
+      console.error('Error clearing user data:', error);
+      // Still close the modal and reset states
+      setShowRoleSelectionModal(false);
+      setUserData(null);
+      setUsername('');
+      setPassword('');
     }
   };
 
@@ -360,6 +426,83 @@ export default function LoginScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Role Selection Modal */}
+      <Modal
+        visible={showRoleSelectionModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={handleCancelRoleSelection}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.roleSelectionIconContainer}>
+              <Ionicons name="people" size={40} color="#fff" />
+            </View>
+            <Text style={styles.roleSelectionTitle}>Select Role</Text>
+            <TouchableOpacity 
+              style={styles.closeRoleModalButton}
+              onPress={handleCancelRoleSelection}
+            >
+              <Ionicons name="close" size={24} color="#666" />
+            </TouchableOpacity>
+            <Text style={styles.modalMessage}>
+              Please select which role you'd like to use:
+            </Text>
+            
+            <View style={styles.roleButtonsContainer}>
+              {availableRoles.map((role, index) => (
+                <TouchableOpacity
+                  key={role}
+                  style={[
+                    styles.roleButton,
+                    role === 'admin' ? styles.adminRoleButton : 
+                    role === 'lecturer' ? styles.lecturerRoleButton : 
+                    styles.studentRoleButton,
+                    selectedRoleIndex === index && styles.selectedRoleButton
+                  ]}
+                  onPress={() => {
+                    handleRoleSelect(role, index);
+                  }}
+                >
+                  <View style={[
+                    styles.roleIconContainer,
+                    role === 'admin' ? styles.adminIconContainer : 
+                    role === 'lecturer' ? styles.lecturerIconContainer : 
+                    styles.studentIconContainer
+                  ]}>
+                    <Ionicons
+                      name={
+                        role === 'admin' ? 'shield-checkmark' :
+                        role === 'lecturer' ? 'school' : 'people'
+                      }
+                      size={24}
+                      color={
+                        role === 'admin' ? '#1a73e8' :
+                        role === 'lecturer' ? '#4CAF50' :
+                        '#FF9800'
+                      }
+                    />
+                  </View>
+                  <View style={styles.roleTextContainer}>
+                    <Text style={styles.roleButtonText}>
+                      {role.charAt(0).toUpperCase() + role.slice(1)}
+                    </Text>
+                    <Text style={styles.roleDescription}>
+                      {role === 'admin' 
+                        ? 'Manage users, courses, and system settings' 
+                        : role === 'lecturer' 
+                        ? 'Manage courses and track student attendance' 
+                        : 'View courses and mark attendance'}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={24} color="#ccc" />
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -558,5 +701,94 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  roleSelectionIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#1a73e8',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  roleSelectionTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    marginBottom: 10,
+    color: '#1a73e8',
+    textAlign: 'center',
+  },
+  roleButtonsContainer: {
+    flexDirection: 'column',
+    width: '100%',
+    marginTop: 20,
+    gap: 12,
+  },
+  roleButton: {
+    padding: 16,
+    borderRadius: 12,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    flexDirection: 'row',
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  adminRoleButton: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#1a73e8',
+  },
+  lecturerRoleButton: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#4CAF50',
+  },
+  studentRoleButton: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#FF9800',
+  },
+  roleIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
+  },
+  adminIconContainer: {
+    backgroundColor: 'rgba(26, 115, 232, 0.1)',
+  },
+  lecturerIconContainer: {
+    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+  },
+  studentIconContainer: {
+    backgroundColor: 'rgba(255, 152, 0, 0.1)',
+  },
+  roleTextContainer: {
+    flex: 1,
+  },
+  roleButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  roleDescription: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 4,
+  },
+  selectedRoleButton: {
+    backgroundColor: '#f5f9ff',
+    borderLeftWidth: 4,
+  },
+  closeRoleModalButton: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    padding: 10,
+    zIndex: 10,
   },
 }); 

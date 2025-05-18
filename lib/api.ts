@@ -42,6 +42,7 @@ export type User = {
   email: string;
   username: string;
   role: 'admin' | 'lecturer' | 'student';
+  roles?: ('admin' | 'lecturer' | 'student')[];
 };
 
 export interface Course {

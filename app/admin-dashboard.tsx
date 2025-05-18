@@ -4,13 +4,26 @@ import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
-import { User, getUsers, deleteUser, createUser, logoutUser } from '../lib/api';
+import { User, getUsers, deleteUser, createUser, logoutUser, updateUser } from '../lib/api';
 import { UserListModal } from './components/UserListModal';
 import { API_CONFIG } from '../config';
 import Alert from './components/Alert';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 SplashScreen.preventAutoHideAsync();
+
+// Role options (used for typechecking)
+type UserRole = 'admin' | 'lecturer' | 'student';
+
+// User form data interface
+interface UserFormData {
+  idNumber: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  username: string;
+  roles: UserRole[];
+}
 
 // Add at the top with other constants
 const SCREEN_HEIGHT = Dimensions.get('window').height;
@@ -60,13 +73,13 @@ export default function AdminDashboard() {
   const [translateY] = useState(new Animated.Value(Dimensions.get('window').height));
   const [showRoleCards, setShowRoleCards] = useState(true);
   const screenHeight = Dimensions.get('window').height;
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<UserFormData>({
     idNumber: '',
     firstName: '',
     lastName: '',
     email: '',
     username: '',
-    role: 'student',
+    roles: ['student'],
   });
   const [alert, setAlert] = useState<{
     visible: boolean;
@@ -79,6 +92,7 @@ export default function AdminDashboard() {
     message: '',
     type: 'error'
   });
+  const [editingUser, setEditingUser] = useState<User | null>(null);
 
   useEffect(() => {
     fetchUsers();
@@ -188,13 +202,14 @@ export default function AdminDashboard() {
   };
 
   const handleAddUser = () => {
+    setEditingUser(null);
     setFormData({
       idNumber: '',
       firstName: '',
       lastName: '',
       email: '',
       username: '',
-      role: 'student',
+      roles: ['student' as UserRole],
     });
     openDrawer();
   };
@@ -216,13 +231,14 @@ export default function AdminDashboard() {
       useNativeDriver: true,
     }).start(() => {
       setIsDrawerOpen(false);
+      setEditingUser(null);
       setFormData({
         idNumber: '',
         firstName: '',
         lastName: '',
         email: '',
         username: '',
-        role: 'student',
+        roles: ['student' as UserRole],
       });
     });
   };
@@ -255,11 +271,11 @@ export default function AdminDashboard() {
       setIsLoading(true);
 
       // Validate required fields
-      if (!formData.firstName || !formData.lastName || !formData.email || !formData.username || !formData.role) {
+      if (!formData.firstName || !formData.lastName || !formData.email || !formData.username || formData.roles.length === 0) {
         setAlert({
           visible: true,
           title: 'Missing Information',
-          message: 'Please fill in all required fields',
+          message: 'Please fill in all required fields and select at least one role',
           type: 'warning'
         });
         return;
@@ -277,55 +293,85 @@ export default function AdminDashboard() {
         return;
       }
 
-      // Check if email already exists
-      const existingUser = users.find(user => 
-        user.email.toLowerCase() === formData.email.toLowerCase()
-      );
-      if (existingUser) {
-        setAlert({
-          visible: true,
-          title: 'Email Exists',
-          message: 'This email address is already registered',
-          type: 'error'
-        });
-        return;
+      // Check if email already exists (for new users, or if email was changed)
+      if (!editingUser || editingUser.email.toLowerCase() !== formData.email.toLowerCase()) {
+        const existingUser = users.find(user => 
+          user.email.toLowerCase() === formData.email.toLowerCase() &&
+          user._id !== (editingUser?._id || '')
+        );
+        
+        if (existingUser) {
+          setAlert({
+            visible: true,
+            title: 'Email Exists',
+            message: 'This email address is already registered',
+            type: 'error'
+          });
+          return;
+        }
       }
 
-      // Generate a random password
+      // Generate a random password for new users
       const generatedPassword = Math.random().toString(36).slice(-8);
 
-      // Create new user
-      const newUser = await createUser({
+      // Prepare data - include both role and roles for API compatibility
+      const userData = {
         ...formData,
-        password: generatedPassword,
-      });
-      setUsers([...users, newUser]);
+        role: formData.roles[0], // Primary role for backward compatibility
+      };
 
-      // Send email with credentials
-      try {
-        await fetch(`${API_CONFIG.baseURL}/auth/send-credentials`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            email: formData.email,
-            username: formData.username,
-            password: generatedPassword,
-            role: formData.role,
-            firstName: formData.firstName,
-          }),
+      if (editingUser) {
+        // Update existing user
+        console.log('Updating user with roles:', formData.roles);
+        const updatedUser = await updateUser(editingUser._id, userData);
+        
+        setUsers(prevUsers => prevUsers.map(u => 
+          u._id === updatedUser._id ? updatedUser : u
+        ));
+        
+        setAlert({
+          visible: true,
+          title: 'Success',
+          message: 'User updated successfully',
+          type: 'success'
         });
-      } catch (emailError) {
-        console.error('Error sending credentials email:', emailError);
-      }
+      } else {
+        // Create new user with password
+        console.log('Creating new user with roles:', formData.roles);
+        const newUser = await createUser({
+          ...userData,
+          password: generatedPassword,
+        });
+        
+        setUsers(prevUsers => [...prevUsers, newUser]);
 
-      setAlert({
-        visible: true,
-        title: 'Success',
-        message: 'User created successfully',
-        type: 'success'
-      });
+        // Send email with credentials
+        try {
+          await fetch(`${API_CONFIG.baseURL}/auth/send-credentials`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              email: formData.email,
+              username: formData.username,
+              password: generatedPassword,
+              role: formData.roles[0], // Primary role
+              roles: formData.roles,   // All roles
+              firstName: formData.firstName,
+            }),
+          });
+        } catch (emailError) {
+          console.error('Error sending credentials email:', emailError);
+        }
+
+        setAlert({
+          visible: true,
+          title: 'Success',
+          message: 'User created successfully',
+          type: 'success'
+        });
+      }
 
       // Reset form and close drawer
       closeDrawer();
@@ -349,7 +395,45 @@ export default function AdminDashboard() {
   };
 
   const getUsersByRole = (role: string) => {
-    return users.filter(user => user.role === role);
+    return users.filter(user => {
+      // Check if user has the given role in the roles array
+      if (Array.isArray(user.roles) && user.roles.length > 0) {
+        return user.roles.includes(role as UserRole);
+      } 
+      // Backward compatibility with existing single role structure
+      return user.role === role;
+    });
+  };
+
+  // Helper to check if a user has multiple roles
+  const hasMultipleRoles = (user: User) => {
+    if (Array.isArray(user.roles)) {
+      return user.roles.length > 1;
+    }
+    return false;
+  };
+
+  // Component to display role badges
+  const RoleBadges: React.FC<{ user: User }> = ({ user }) => {
+    const roles = Array.isArray(user.roles) ? user.roles : [user.role];
+    
+    return (
+      <View style={styles.roleBadgesContainer}>
+        {roles.map((role, index) => (
+          <View 
+            key={index} 
+            style={[
+              styles.roleBadge, 
+              role === 'admin' ? styles.adminBadge : 
+              role === 'lecturer' ? styles.lecturerBadge : 
+              styles.studentBadge
+            ]}
+          >
+            <Text style={styles.roleBadgeText}>{role.charAt(0).toUpperCase() + role.slice(1)}</Text>
+          </View>
+        ))}
+      </View>
+    );
   };
 
   const handleDeleteUser = async (userId: string) => {
@@ -376,7 +460,9 @@ export default function AdminDashboard() {
     >
       <View style={styles.drawerHeader} {...panResponder.panHandlers}>
         <View style={styles.drawerHandle} />
-        <Text style={styles.drawerTitle}>Add New User</Text>
+        <Text style={styles.drawerTitle}>
+          {editingUser ? `Edit: ${editingUser.firstName} ${editingUser.lastName}` : 'Add New User'}
+        </Text>
         <TouchableOpacity onPress={closeDrawer} style={styles.closeButton}>
           <Ionicons name="close" size={24} color="#666" />
         </TouchableOpacity>
@@ -492,18 +578,30 @@ export default function AdminDashboard() {
             </View>
             
             <View style={styles.roleContainer}>
-              {['student', 'lecturer', 'admin'].map((role) => (
+              {(['student', 'lecturer', 'admin'] as UserRole[]).map((role) => (
                 <TouchableOpacity
                   key={role}
                   style={[
                     styles.roleButton,
-                    formData.role === role && styles.roleButtonSelected,
+                    formData.roles.includes(role) && styles.roleButtonSelected,
                   ]}
-                  onPress={() => setFormData({ ...formData, role })}
+                  onPress={() => {
+                    if (formData.roles.includes(role)) {
+                      setFormData({
+                        ...formData,
+                        roles: formData.roles.filter((r) => r !== role),
+                      });
+                    } else {
+                      setFormData({
+                        ...formData,
+                        roles: [...formData.roles, role],
+                      });
+                    }
+                  }}
                 >
                   <View style={[
                     styles.drawerRoleIconContainer,
-                    formData.role === role && styles.drawerRoleIconContainerSelected
+                    formData.roles.includes(role) && styles.drawerRoleIconContainerSelected
                   ]}>
                     <Ionicons
                       name={
@@ -511,13 +609,13 @@ export default function AdminDashboard() {
                         role === 'lecturer' ? 'school' : 'people'
                       }
                       size={24}
-                      color={formData.role === role ? '#fff' : '#666'}
+                      color={formData.roles.includes(role) ? '#fff' : '#666'}
                     />
                   </View>
                   <Text
                     style={[
                       styles.roleButtonText,
-                      formData.role === role && styles.roleButtonTextSelected,
+                      formData.roles.includes(role) && styles.roleButtonTextSelected,
                     ]}
                   >
                     {role.charAt(0).toUpperCase() + role.slice(1)}
@@ -710,8 +808,26 @@ export default function AdminDashboard() {
           onClose={() => setShowUserListModal(false)}
           users={getUsersByRole(selectedRole)}
           onEdit={(user) => {
+            // Close the user list modal
             setShowUserListModal(false);
-            router.push(`/manage-users?action=edit&userId=${user._id}`);
+            
+            // Set the user we're editing
+            setEditingUser(user);
+            
+            // Set form data from the user to edit
+            setFormData({
+              idNumber: user.idNumber,
+              firstName: user.firstName,
+              lastName: user.lastName,
+              email: user.email,
+              username: user.username,
+              roles: Array.isArray(user.roles) 
+                ? user.roles 
+                : [user.role as UserRole],
+            });
+            
+            // Open the drawer for editing
+            openDrawer();
           }}
           onDelete={async (userId) => {
             await handleDeleteUser(userId);
@@ -1231,5 +1347,32 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#fff',
   },
-
+  roleBadgesContainer: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+  },
+  roleBadge: {
+    padding: 4,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+    borderRadius: 8,
+  },
+  adminBadge: {
+    backgroundColor: 'rgba(26, 115, 232, 0.1)',
+  },
+  lecturerBadge: {
+    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+  },
+  studentBadge: {
+    backgroundColor: 'rgba(255, 152, 0, 0.1)',
+  },
+  otherBadge: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  roleBadgeText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#666',
+  },
 }); 

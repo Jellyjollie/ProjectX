@@ -145,13 +145,13 @@ app.get('/api/users/:id', async (req, res) => {
   }
 });
 
-// Create new user
+// Create user
 app.post('/api/users', async (req, res) => {
   try {
-    const { idNumber, firstName, lastName, email, username, password, role } = req.body;
+    const { idNumber, firstName, lastName, email, username, password, role, roles } = req.body;
 
     // Validate required fields
-    if (!idNumber || !firstName || !lastName || !email || !username || !password || !role) {
+    if (!idNumber || !firstName || !lastName || !email || !username || !password || (!role && !roles?.length)) {
       return res.status(400).json({ message: 'All fields are required' });
     }
 
@@ -168,22 +168,32 @@ app.post('/api/users', async (req, res) => {
     }
 
     // Create new user
-    const user = new User({
+    const userData = {
       idNumber,
       firstName,
       lastName,
       email,
       username,
       password,
-      role
-    });
+    };
+    
+    // Handle both single role and multiple roles
+    if (roles && roles.length > 0) {
+      userData.role = roles[0]; // Set primary role for backward compatibility
+      userData.roles = roles;   // Store all roles
+    } else if (role) {
+      userData.role = role;
+      userData.roles = [role];
+    }
+
+    const user = new User(userData);
 
     await user.save();
 
     // Return user data without password
-    const userData = user.toObject();
-    delete userData.password;
-    res.status(201).json(userData);
+    const responseData = user.toObject();
+    delete responseData.password;
+    res.status(201).json(responseData);
   } catch (error) {
     console.error('Create user error:', error);
     res.status(500).json({ message: 'Internal server error' });
@@ -193,10 +203,10 @@ app.post('/api/users', async (req, res) => {
 // Update user
 app.put('/api/users/:id', async (req, res) => {
   try {
-    const { idNumber, firstName, lastName, email, username, password, role } = req.body;
+    const { idNumber, firstName, lastName, email, username, password, role, roles } = req.body;
     
     // Validate required fields
-    if (!idNumber || !firstName || !lastName || !email || !username || !role) {
+    if (!idNumber || !firstName || !lastName || !email || !username || (!role && !roles?.length)) {
       return res.status(400).json({ message: 'All fields except password are required' });
     }
 
@@ -222,8 +232,16 @@ app.put('/api/users/:id', async (req, res) => {
       lastName,
       email,
       username,
-      role
     };
+    
+    // Handle both single role and multiple roles
+    if (roles && roles.length > 0) {
+      updateData.role = roles[0]; // Set primary role for backward compatibility
+      updateData.roles = roles;   // Store all roles
+    } else if (role) {
+      updateData.role = role;
+      updateData.roles = [role];
+    }
 
     // Only update password if provided
     if (password) {

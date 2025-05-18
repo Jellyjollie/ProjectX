@@ -237,6 +237,23 @@ export const UserListModal: React.FC<UserListModalProps> = ({
                   <Text style={styles.userId}>{user.idNumber}</Text>
                   <Text style={styles.userName}>{user.lastName}, {user.firstName}</Text>
                   <Text style={styles.userEmail}>{user.email}</Text>
+                  
+                  {/* Display role badges */}
+                  <View style={styles.roleBadgesContainer}>
+                    {(Array.isArray(user.roles) ? user.roles : [user.role]).map((role, index) => (
+                      <View 
+                        key={index} 
+                        style={[
+                          styles.roleBadge, 
+                          role === 'admin' ? styles.adminBadge : 
+                          role === 'lecturer' ? styles.lecturerBadge : 
+                          styles.studentBadge
+                        ]}
+                      >
+                        <Text style={styles.roleBadgeText}>{role.charAt(0).toUpperCase() + role.slice(1)}</Text>
+                      </View>
+                    ))}
+                  </View>
                 </View>
                 <View style={styles.userActions}>
                   <TouchableOpacity
@@ -499,5 +516,32 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  roleBadgesContainer: {
+    flexDirection: 'row',
+    gap: 4,
+    marginTop: 8,
+    flexWrap: 'wrap',
+  },
+  roleBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginRight: 4,
+    marginBottom: 4,
+  },
+  adminBadge: {
+    backgroundColor: 'rgba(26, 115, 232, 0.1)',
+  },
+  lecturerBadge: {
+    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+  },
+  studentBadge: {
+    backgroundColor: 'rgba(255, 152, 0, 0.1)',
+  },
+  roleBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#666',
   },
 }); 

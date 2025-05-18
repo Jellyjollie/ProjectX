@@ -33,6 +33,11 @@ const userSchema = new mongoose.Schema({
     type: String,
     enum: ['admin', 'lecturer', 'student'],
     required: true
+  },
+  roles: {
+    type: [String],
+    enum: ['admin', 'lecturer', 'student'],
+    default: []
   }
 }, {
   timestamps: true

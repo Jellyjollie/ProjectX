@@ -53,6 +53,15 @@ export default function AssignStudents() {
     return displayedStudents.slice(0, page * ITEMS_PER_PAGE);
   }, [displayedStudents, page]);
 
+  // Calculate separate counts for enrolled and available students
+  const enrolledCount = useMemo(() => {
+    return filteredStudents.filter(student => selectedStudents.includes(student._id)).length;
+  }, [filteredStudents, selectedStudents]);
+  
+  const availableCount = useMemo(() => {
+    return filteredStudents.filter(student => !selectedStudents.includes(student._id)).length;
+  }, [filteredStudents, selectedStudents]);
+
   useEffect(() => {
     fetchStudents();
     fetchCourse();
@@ -299,7 +308,7 @@ export default function AssignStudents() {
               styles.tabText,
               activeTab === 'enrolled' && styles.activeTabText
             ]}>
-              Enrolled ({displayedStudents.length})
+              Enrolled ({enrolledCount})
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -319,7 +328,7 @@ export default function AssignStudents() {
               styles.tabText,
               activeTab === 'available' && styles.activeTabText
             ]}>
-              Available ({displayedStudents.length})
+              Available ({availableCount})
             </Text>
           </TouchableOpacity>
         </View>
