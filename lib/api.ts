@@ -73,15 +73,19 @@ const handleResponse = async (response: Response) => {
 
 export const authenticateUser = async (username: string, password: string) => {
   try {
+    console.log('Authenticating user:', username);
+    
     // For development/testing, use mock data
     const mockUser = mockUsers.find(
       user => user.username === username && user.password === password
     );
 
     if (mockUser) {
+      console.log('Mock user found:', mockUser.username);
       // Create mock login log
       try {
-        await fetch(`${API_CONFIG.baseURL}/logs/mock`, {
+        console.log('Creating mock login audit entry...');
+        const loginResponse = await fetch(`${API_CONFIG.baseURL}/logs/mock`, {
           method: 'POST',
           headers: API_CONFIG.headers,
           body: JSON.stringify({
@@ -90,19 +94,39 @@ export const authenticateUser = async (username: string, password: string) => {
             role: mockUser.role
           }),
         });
+        
+        const loginData = await loginResponse.json();
+        console.log('Login audit response:', loginData);
+        
+        const loginAuditId = loginData.loginAuditId;
+        console.log('Received loginAuditId:', loginAuditId);
+
+        // Remove password from the response
+        const { password: _, ...userWithoutPassword } = mockUser;
+        
+        const userData = {
+          ...userWithoutPassword,
+          loginAuditId
+        };
+        
+        console.log('Returning user data with loginAuditId:', userData);
+        return {
+          success: true,
+          user: userData
+        };
       } catch (error) {
         console.error('Error creating mock login log:', error);
+        // Continue with login even if logging fails
+        const { password: _, ...userWithoutPassword } = mockUser;
+        return {
+          success: true,
+          user: userWithoutPassword
+        };
       }
-
-      // Remove password from the response
-      const { password: _, ...userWithoutPassword } = mockUser;
-      return {
-        success: true,
-        user: userWithoutPassword
-      };
     }
 
     // If not using mock data, make the API call
+    console.log('No mock user found, calling API...');
     const response = await fetch(`${API_CONFIG.baseURL}/auth/login`, {
       method: 'POST',
       headers: API_CONFIG.headers,
@@ -110,11 +134,13 @@ export const authenticateUser = async (username: string, password: string) => {
     });
 
     const data = await handleResponse(response);
+    console.log('API login response:', data);
     return {
       success: true,
-      user: data
+      user: data // Server already includes loginAuditId in response
     };
   } catch (error) {
+    console.error('Authentication error:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Invalid credentials'
@@ -266,6 +292,31 @@ export const resetPassword = async (email: string, username: string, newPassword
       throw new Error(`Password reset failed: ${error.message}`);
     }
     throw new Error('Password reset failed: Unknown error');
+  }
+};
+
+export const logoutUser = async (userId?: string, loginAuditId?: string) => {
+  try {
+    // Ensure at least one parameter is provided
+    if (!userId && !loginAuditId) {
+      throw new Error('Either userId or loginAuditId must be provided');
+    }
+    
+    const response = await fetch(`${API_CONFIG.baseURL}/auth/logout`, {
+      method: 'POST',
+      headers: API_CONFIG.headers,
+      body: JSON.stringify({ 
+        userId,
+        loginAuditId 
+      }),
+    });
+
+    return handleResponse(response);
+  } catch (error) {
+    if (error instanceof Error) {
+      throw new Error(`Logout failed: ${error.message}`);
+    }
+    throw new Error('Logout failed: Unknown error');
   }
 };
 

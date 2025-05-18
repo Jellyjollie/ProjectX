@@ -4,7 +4,7 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const User = require('./models/User');
-const LoginLog = require('./models/LoginLog');
+const LoginAudit = require('./models/LoginAudit');
 const nodemailer = require('nodemailer');
 const Course = require('./models/Course');
 const Attendance = require('./models/Attendance');
@@ -43,8 +43,8 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ message: 'Invalid username or password' });
     }
 
-    // Create login log entry
-    const loginLog = new LoginLog({
+    // Create login audit entry
+    const loginLog = new LoginAudit({
       userId: user._id,
       username: user.username,
       role: user.role
@@ -54,7 +54,12 @@ app.post('/api/auth/login', async (req, res) => {
     // Return user data without password
     const userData = user.toObject();
     delete userData.password;
-    res.json(userData);
+    
+    // Include the loginAuditId in the response
+    res.json({
+      ...userData,
+      loginAuditId: loginLog._id
+    });
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
   }
@@ -87,15 +92,25 @@ app.post('/api/logs/mock', async (req, res) => {
   try {
     const { userId, username, role } = req.body;
 
-    // Create mock login log entry
-    const loginLog = new LoginLog({
+    // Get the current Philippine time (UTC+8)
+    const now = new Date();
+    const phTime = new Date(now.getTime() + (8 * 60 * 60 * 1000));
+
+    // Create mock login audit entry with Philippine time
+    const loginLog = new LoginAudit({
       userId: new mongoose.Types.ObjectId(userId),
       username,
-      role
+      role,
+      loginTime: phTime
     });
+    
     await loginLog.save();
+    console.log('Created mock login audit entry:', loginLog._id);
 
-    res.json({ success: true });
+    res.json({ 
+      success: true,
+      loginAuditId: loginLog._id
+    });
   } catch (error) {
     console.error('Error creating mock login log:', error);
     res.status(500).json({ message: 'Server error' });
@@ -259,15 +274,71 @@ app.delete('/api/users/:id', async (req, res) => {
   }
 });
 
-// Get login logs (admin only)
+// Get login audit logs (admin only)
 app.get('/api/logs', async (req, res) => {
   try {
-    const logs = await LoginLog.find()
+    const logs = await LoginAudit.find()
       .sort({ loginTime: -1 })
       .populate('userId', 'firstName lastName email');
     res.json(logs);
   } catch (error) {
     console.error('Error fetching login logs:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Logout endpoint
+app.post('/api/auth/logout', async (req, res) => {
+  try {
+    console.log('Logout endpoint called with:', req.body);
+    const { userId, loginAuditId } = req.body;
+    
+    if (!userId && !loginAuditId) {
+      console.log('Missing required parameters: userId or loginAuditId');
+      return res.status(400).json({ message: 'Either userId or loginAuditId is required' });
+    }
+
+    // Get the current Philippine time (UTC+8)
+    const now = new Date();
+    const phTime = new Date(now.getTime() + (8 * 60 * 60 * 1000));
+    console.log('Current Philippine time:', phTime);
+    
+    let loginRecord;
+    let query = {};
+    
+    if (loginAuditId) {
+      console.log('Searching for LoginAudit by ID:', loginAuditId);
+      // If loginAuditId is provided, find and update that specific record
+      loginRecord = await LoginAudit.findById(loginAuditId);
+    } else {
+      console.log('Searching for LoginAudit by userId:', userId);
+      // Otherwise fall back to finding the most recent login for the user
+      loginRecord = await LoginAudit.findOne({
+        userId,
+        logoutTime: null
+      }).sort({ loginTime: -1 });
+    }
+
+    console.log('Found login record:', loginRecord ? loginRecord._id : 'none');
+
+    if (loginRecord) {
+      // Update the login record with logout time
+      console.log('Updating login record with logout time:', phTime);
+      loginRecord.logoutTime = phTime;
+      await loginRecord.save();
+      console.log('Successfully saved logout time');
+      
+      res.json({ 
+        message: 'Logout successful', 
+        logoutTime: phTime,
+        loginAuditId: loginRecord._id 
+      });
+    } else {
+      console.log('No active session found for logout');
+      res.status(404).json({ message: 'No active session found' });
+    }
+  } catch (error) {
+    console.error('Logout error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -604,13 +675,39 @@ app.post('/api/attendance/generate-qr', async (req, res) => {
 // Record attendance from QR scan
 app.post('/api/attendance/scan', async (req, res) => {
   try {
-    const { qrData, studentId } = req.body;
-    const qrInfo = JSON.parse(qrData);
+    const { qrData, studentId, intendedCourseId, courseCode } = req.body;
+    
+    console.log('Scan request received:', { 
+      studentId, 
+      intendedCourseId,
+      courseCode 
+    });
+    
+    let qrInfo;
+    try {
+      qrInfo = JSON.parse(qrData);
+      console.log('Parsed QR data:', qrInfo);
+    } catch (error) {
+      console.error('Invalid QR data format:', error);
+      return res.status(400).json({ message: 'Invalid QR code format' });
+    }
+
+    // Validate that QR course matches intended course (if provided)
+    if (intendedCourseId && qrInfo.courseId !== intendedCourseId) {
+      console.error('Course mismatch:', { 
+        qrCourseId: qrInfo.courseId, 
+        intendedCourseId 
+      });
+      return res.status(400).json({ 
+        message: `This QR code is for ${qrInfo.courseCode || 'another course'}. You are trying to mark attendance for ${courseCode || 'a different course'}.` 
+      });
+    }
 
     // Validate QR code expiration
     const now = new Date();
     const phTime = new Date(now.getTime() + (8 * 60 * 60 * 1000)); // Current PH time
     if (new Date(qrInfo.expiresAt) <= phTime) {
+      console.error('QR code expired');
       return res.status(400).json({ message: 'QR code has expired' });
     }
 
@@ -621,6 +718,7 @@ app.post('/api/attendance/scan', async (req, res) => {
     });
 
     if (!attendance) {
+      console.error('Attendance record not found');
       return res.status(404).json({ message: 'Attendance record not found' });
     }
 
@@ -630,7 +728,30 @@ app.post('/api/attendance/scan', async (req, res) => {
     );
 
     if (hasScanned) {
+      console.error('Student already scanned this QR code');
       return res.status(400).json({ message: 'You have already scanned this QR code' });
+    }
+
+    // Validate student is enrolled in the course
+    const course = await Course.findById(qrInfo.courseId);
+    if (!course) {
+      console.error('Course not found');
+      return res.status(404).json({ message: 'Course not found' });
+    }
+
+    const isEnrolled = course.students && course.students.some(
+      id => id.toString() === studentId
+    );
+
+    if (!isEnrolled) {
+      console.error('Student not enrolled in course', {
+        studentId,
+        courseId: qrInfo.courseId,
+        courseName: qrInfo.courseName
+      });
+      return res.status(403).json({ 
+        message: `You are not enrolled in ${qrInfo.courseCode || 'this course'}. Attendance cannot be marked.` 
+      });
     }
 
     // Add student to scannedBy array
@@ -660,6 +781,31 @@ app.get('/api/attendance/course/:courseId', async (req, res) => {
   } catch (error) {
     console.error('Get attendance records error:', error);
     res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Get students enrolled in a course
+app.get('/api/courses/:courseId/students', async (req, res) => {
+  try {
+    const course = await Course.findById(req.params.courseId).populate('students');
+    if (!course) {
+      return res.status(404).json({ message: 'Course not found' });
+    }
+    res.json(course.students);
+  } catch (error) {
+    console.error('Get course students error:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Get attendance records for a course
+app.get('/api/courses/:courseId/attendance', async (req, res) => {
+  try {
+    const attendance = await Attendance.find({ courseId: req.params.courseId });
+    res.json(attendance);
+  } catch (error) {
+    console.error('Get course attendance error:', error);
+    res.status(500).json({ message: 'Internal server error' });
   }
 });
 

@@ -5,6 +5,7 @@ import { authenticateUser, resetPassword } from '../lib/api';
 import { Ionicons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
@@ -47,19 +48,41 @@ export default function LoginScreen() {
     setShowModal(true);
   };
 
-  const handleModalClose = () => {
+  const handleModalClose = async () => {
     setShowModal(false);
     if (modalType === 'success' && userData) {
-      switch (userData.role) {
-        case 'admin':
-          router.push('/admin-dashboard');
-          break;
-        case 'lecturer':
-          router.push(`/lecturer-dashboard?id=${userData._id}`);
-          break;
-        case 'student':
-          router.push(`/student-dashboard?id=${userData._id}`);
-          break;
+      try {
+        // Store user data in AsyncStorage
+        console.log('Storing user data in AsyncStorage:', userData);
+        await AsyncStorage.setItem('user', JSON.stringify(userData));
+        console.log('User data stored successfully');
+        
+        // Navigate based on user role
+        switch (userData.role) {
+          case 'admin':
+            router.push('/admin-dashboard');
+            break;
+          case 'lecturer':
+            router.push(`/lecturer-dashboard?id=${userData._id}`);
+            break;
+          case 'student':
+            router.push(`/student-dashboard?id=${userData._id}`);
+            break;
+        }
+      } catch (error) {
+        console.error('Error storing user data:', error);
+        // Continue with navigation even if storage fails
+        switch (userData.role) {
+          case 'admin':
+            router.push('/admin-dashboard');
+            break;
+          case 'lecturer':
+            router.push(`/lecturer-dashboard?id=${userData._id}`);
+            break;
+          case 'student':
+            router.push(`/student-dashboard?id=${userData._id}`);
+            break;
+        }
       }
     }
   };

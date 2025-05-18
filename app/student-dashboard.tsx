@@ -4,11 +4,12 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
-import { Course, getCourses } from '../lib/api';
+import { Course, getCourses, logoutUser } from '../lib/api';
 import { CameraView, BarcodeScanningResult, Camera } from 'expo-camera';
 import { Audio } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
 import { API_CONFIG } from '../config';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -28,8 +29,12 @@ export default function StudentDashboard() {
   const [scanned, setScanned] = useState(false);
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [showErrorModal, setShowErrorModal] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
   const scanLineAnim = useRef(new Animated.Value(0)).current;
   const { width: screenWidth } = Dimensions.get('window');
+  const [currentScanningCourse, setCurrentScanningCourse] = useState<Course | null>(null);
 
   useEffect(() => {
     fetchEnrolledCourses();
@@ -112,6 +117,53 @@ export default function StudentDashboard() {
       setScanned(true);
       await playBeep();
 
+      console.log('Scanned QR data:', data);
+
+      // Parse the QR data to get the course information
+      let qrDataObj;
+      try {
+        qrDataObj = JSON.parse(data);
+        console.log('Parsed QR data:', qrDataObj);
+      } catch (e) {
+        console.error('Failed to parse QR data:', e);
+        throw new Error('Invalid QR code format');
+      }
+
+      // Verify the QR code is for the correct course
+      if (!currentScanningCourse) {
+        throw new Error('Course information not available');
+      }
+
+      console.log('Current scanning course:', currentScanningCourse);
+      console.log('QR course ID:', qrDataObj.courseId);
+      console.log('Scanning course ID:', currentScanningCourse._id);
+
+      // Strict comparison of course IDs
+      if (qrDataObj.courseId !== currentScanningCourse._id) {
+        throw new Error(`This QR code is for ${qrDataObj.courseCode || 'another course'}. You are trying to mark attendance for ${currentScanningCourse.courseCode}.`);
+      }
+
+      // Verify the student is enrolled in this course
+      const isEnrolled = courses.some(course => 
+        course._id === qrDataObj.courseId && 
+        course.students && 
+        course.students.includes(currentUserId)
+      );
+
+      if (!isEnrolled) {
+        throw new Error(`You are not enrolled in ${qrDataObj.courseCode || 'this course'}. Attendance cannot be marked.`);
+      }
+
+      // Check if QR code has expired
+      if (qrDataObj.expiresAt) {
+        const expiryTime = new Date(qrDataObj.expiresAt);
+        const currentTime = new Date();
+        
+        if (currentTime > expiryTime) {
+          throw new Error('This QR code has expired. Please ask your lecturer to generate a new one.');
+        }
+      }
+
       // Send scan to backend
       const response = await fetch(`${API_CONFIG.baseURL}/attendance/scan`, {
         method: 'POST',
@@ -121,7 +173,9 @@ export default function StudentDashboard() {
         },
         body: JSON.stringify({
           qrData: data,
-          studentId: currentUserId
+          studentId: currentUserId,
+          intendedCourseId: currentScanningCourse._id, // Send the intended course ID for additional validation
+          courseCode: currentScanningCourse.courseCode // Send course code for better error messages
         }),
       });
 
@@ -131,21 +185,24 @@ export default function StudentDashboard() {
         throw new Error(result.message || 'Failed to record attendance');
       }
 
-      Alert.alert('Success', 'Attendance marked successfully!');
-      setScannerVisible(false);
-      setScanned(false);
+      setShowSuccessModal(true);
+      setTimeout(() => {
+        setShowSuccessModal(false);
+        setScannerVisible(false);
+        setScanned(false);
+        setCurrentScanningCourse(null); // Reset current scanning course
+      }, 2000);
     } catch (error: any) {
       console.error('Error scanning QR code:', error);
-      if (error.message === 'Network request failed') {
-        Alert.alert('Error', 'Unable to connect to the server. Please check your internet connection.');
-      } else {
-        Alert.alert('Error', error.message || 'Failed to record attendance');
-      }
+      setErrorMessage(error.message === 'Network request failed' 
+        ? 'Unable to connect to the server. Please check your internet connection.'
+        : error.message || 'Failed to record attendance');
+      setShowErrorModal(true);
       setScanned(false);
     }
   };
 
-  const handleScanPress = () => {
+  const handleScanPress = (course: Course) => {
     if (hasPermission === null) {
       Alert.alert('Error', 'Requesting camera permission...');
       return;
@@ -154,6 +211,7 @@ export default function StudentDashboard() {
       Alert.alert('Error', 'No access to camera');
       return;
     }
+    setCurrentScanningCourse(course); // Set the current course for which attendance is being marked
     setScannerVisible(true);
   };
 
@@ -184,8 +242,44 @@ export default function StudentDashboard() {
     setShowLogoutConfirm(true);
   };
 
-  const handleConfirmLogout = () => {
-    router.replace('/');
+  const handleConfirmLogout = async () => {
+    try {
+      // Get the current user data from AsyncStorage
+      const userData = await AsyncStorage.getItem('user');
+      
+      console.log('Logging out student, stored data:', userData);
+      
+      if (userData) {
+        const user = JSON.parse(userData);
+        console.log('Parsed user data:', user);
+        
+        // For better troubleshooting
+        if (user.loginAuditId) {
+          console.log('Found loginAuditId:', user.loginAuditId);
+          const response = await logoutUser(undefined, user.loginAuditId);
+          console.log('Logout response:', response);
+        } else if (user._id) {
+          console.log('Using user._id for logout:', user._id);
+          const response = await logoutUser(user._id);
+          console.log('Logout response:', response);
+        } else {
+          console.log('No user ID available for logout');
+        }
+      } else {
+        console.log('No user data in AsyncStorage');
+      }
+      
+      // Remove user data from storage
+      await AsyncStorage.removeItem('user');
+      console.log('Cleared user data from AsyncStorage');
+      
+      // Navigate to login screen
+      router.replace('/');
+    } catch (error) {
+      console.error('Logout error:', error);
+      // Still proceed with logout even if logging the logout time fails
+      router.replace('/');
+    }
   };
 
   if (!fontsLoaded && !fontError) {
@@ -203,7 +297,7 @@ export default function StudentDashboard() {
           <View style={styles.courseOverlay}>
             <TouchableOpacity 
               style={styles.courseActionButton}
-              onPress={handleScanPress}
+              onPress={() => handleScanPress(course)}
             >
               <Ionicons name="scan-outline" size={24} color="#FFD700" />
             </TouchableOpacity>
@@ -363,6 +457,48 @@ export default function StudentDashboard() {
           </LinearGradient>
         </View>
       )}
+
+      {/* Success Modal */}
+      <Modal
+        visible={showSuccessModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowSuccessModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, styles.successModal]}>
+            <View style={styles.successIconContainer}>
+              <Ionicons name="checkmark-circle" size={64} color="#4CAF50" />
+            </View>
+            <Text style={styles.successTitle}>Success!</Text>
+            <Text style={styles.successText}>Attendance marked successfully</Text>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Error Modal */}
+      <Modal
+        visible={showErrorModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowErrorModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, styles.errorModal]}>
+            <View style={styles.errorIconContainer}>
+              <Ionicons name="alert-circle" size={64} color="#D32F2F" />
+            </View>
+            <Text style={styles.errorTitle}>Error</Text>
+            <Text style={styles.errorMessageText}>{errorMessage}</Text>
+            <TouchableOpacity
+              style={styles.errorButton}
+              onPress={() => setShowErrorModal(false)}
+            >
+              <Text style={styles.errorButtonText}>Try Again</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {/* Logout Confirmation Modal */}
       <Modal
@@ -806,5 +942,73 @@ const styles = StyleSheet.create({
     fontSize: 14,
     opacity: 0.8,
     flex: 1,
+  },
+  successModal: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 24,
+    alignItems: 'center',
+    width: '80%',
+    maxWidth: 320,
+  },
+  successIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  successTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#4CAF50',
+    marginBottom: 8,
+  },
+  successText: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+  },
+  errorModal: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 24,
+    alignItems: 'center',
+    width: '80%',
+    maxWidth: 320,
+  },
+  errorIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(211, 47, 47, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  errorTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#D32F2F',
+    marginBottom: 8,
+  },
+  errorMessageText: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  errorButton: {
+    backgroundColor: '#D32F2F',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  errorButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 }); 

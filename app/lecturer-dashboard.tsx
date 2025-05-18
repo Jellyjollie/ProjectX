@@ -1,21 +1,201 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, ActivityIndicator, Modal, BackHandler, Alert, TextInput, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, ActivityIndicator, Modal, BackHandler, Alert, TextInput, RefreshControl, Platform, Vibration } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
-import { Course, getCourses } from '../lib/api';
+import { Course, getCourses, logoutUser } from '../lib/api';
 import QRCode from 'react-native-qrcode-svg';
 import * as MediaLibrary from 'expo-media-library';
 import ViewShot from 'react-native-view-shot';
 import { API_CONFIG } from '../config';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// Function to get current Philippine time
+const getPhilippineTime = () => {
+  console.log('[getPhilippineTime] Getting current Philippine time');
+  
+  const now = new Date();
+  console.log(`[getPhilippineTime] Current local time: ${now.toString()}`);
+  console.log(`[getPhilippineTime] Current UTC time: ${now.toUTCString()}`);
+  
+  // Get current UTC time in milliseconds
+  const utcTimeMs = now.getTime();
+  
+  // Convert to Philippine time (UTC+8)
+  const phTime = new Date(utcTimeMs + (8 * 60 * 60 * 1000));
+  console.log(`[getPhilippineTime] Calculated PH time: ${phTime.toString()}`);
+  
+  return phTime;
+};
+
+// Function to format time in Philippine timezone
+const formatPhilippineTime = (timestamp: string) => {
+  try {
+    console.log(`[formatPhilippineTime] Input timestamp: ${timestamp}`);
+    
+    // Parse the ISO string timestamp directly
+    const date = new Date(timestamp);
+    console.log(`[formatPhilippineTime] Parsed date: ${date.toString()}`);
+    
+    // Extract time directly from the timestamp without adding 8 hours
+    // For database timestamps like 2025-05-18T14:21:17.727+00:00
+    const match = timestamp.match(/T(\d{2}):(\d{2})/);
+    if (match) {
+      const hours24 = parseInt(match[1], 10);
+      const minutes = match[2];
+      
+      // Convert to 12-hour format
+      const ampm = hours24 >= 12 ? 'PM' : 'AM';
+      const hours12 = hours24 % 12 || 12; // Convert 0 to 12
+      
+      // Return formatted string - display the database time directly
+      const result = `${hours12}:${minutes} ${ampm}`;
+      console.log(`[formatPhilippineTime] Result: ${result}`);
+      return result;
+    }
+    
+    // Fallback if regex fails
+    const hours = date.getUTCHours();
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    const hours12 = hours % 12 || 12;
+    const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+    
+    const result = `${hours12}:${minutes} ${ampm}`;
+    console.log(`[formatPhilippineTime] Result: ${result}`);
+    return result;
+  } catch (error) {
+    console.error('Error formatting time:', error);
+    return timestamp; // Return original timestamp as fallback
+  }
+};
+
+// Function to format date from database timestamp
+const formatPhilippineDate = (timestamp: string) => {
+  try {
+    console.log(`[formatPhilippineDate] Input timestamp: ${timestamp}`);
+    
+    // Parse the ISO string timestamp directly
+    const date = new Date(timestamp);
+    console.log(`[formatPhilippineDate] Parsed date: ${date.toString()}`);
+    
+    // Extract date directly from the timestamp without timezone adjustment
+    const match = timestamp.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (match) {
+      const year = parseInt(match[1], 10);
+      const month = parseInt(match[2], 10) - 1; // Months are 0-based in JS
+      const day = parseInt(match[3], 10);
+      
+      // Create a Date object with these values to get day of week
+      const dateObj = new Date(year, month, day);
+      const dayOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][dateObj.getDay()];
+      
+      // Get month name
+      const monthName = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][month];
+      
+      // Return formatted string
+      const result = `${dayOfWeek}, ${monthName} ${day}, ${year}`;
+      console.log(`[formatPhilippineDate] Result: ${result}`);
+      return result;
+    }
+    
+    // Fallback if regex fails
+    const dayOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][date.getUTCDay()];
+    const monthName = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][date.getUTCMonth()];
+    const day = date.getUTCDate();
+    const year = date.getUTCFullYear();
+    
+    const result = `${dayOfWeek}, ${monthName} ${day}, ${year}`;
+    console.log(`[formatPhilippineDate] Result: ${result}`);
+    return result;
+  } catch (error) {
+    console.error('Error formatting date:', error);
+    return timestamp; // Return original timestamp as fallback
+  }
+};
+
+// Function to format date and time for session tabs
+const formatSessionTabTime = (timestamp: string) => {
+  try {
+    console.log(`[formatSessionTabTime] Input timestamp: ${timestamp}`);
+    
+    // Extract date and time directly from the timestamp without timezone adjustment
+    const dateMatch = timestamp.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    const timeMatch = timestamp.match(/T(\d{2}):(\d{2})/);
+    
+    if (dateMatch && timeMatch) {
+      // Parse date components
+      const year = parseInt(dateMatch[1], 10);
+      const month = parseInt(dateMatch[2], 10) - 1; // Months are 0-based in JS
+      const day = parseInt(dateMatch[3], 10);
+      
+      // Parse time components
+      const hours24 = parseInt(timeMatch[1], 10);
+      const minutes = timeMatch[2];
+      
+      // Convert to 12-hour format
+      const ampm = hours24 >= 12 ? 'PM' : 'AM';
+      const hours12 = hours24 % 12 || 12; // Convert 0 to 12
+      
+      // Get abbreviated month name
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      
+      // Return formatted string - display the database time directly
+      const result = `${months[month]} ${day}, ${hours12}:${minutes} ${ampm}`;
+      console.log(`[formatSessionTabTime] Result: ${result}`);
+      return result;
+    }
+    
+    // Fallback if regex fails - use direct UTC methods
+    const date = new Date(timestamp);
+    console.log(`[formatSessionTabTime] Parsed date: ${date.toString()}`);
+    
+    const month = date.getUTCMonth();
+    const day = date.getUTCDate();
+    const hours = date.getUTCHours();
+    const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+    
+    // Format time for display
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    const hours12 = hours % 12 || 12;
+    
+    // Get abbreviated month name
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    
+    const result = `${months[month]} ${day}, ${hours12}:${minutes} ${ampm}`;
+    console.log(`[formatSessionTabTime] Result: ${result}`);
+    return result;
+  } catch (error) {
+    console.error('Error formatting session tab time:', error);
+    return timestamp; // Return original timestamp as fallback
+  }
+};
+
+// WebSocket connection setup
+const setupWebSocket = (courseId: string, onNewScan: () => void) => {
+  const wsUrl = API_CONFIG.baseURL.replace('http', 'ws');
+  const ws = new WebSocket(`${wsUrl}/attendance/${courseId}`);
+
+  ws.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    if (data.type === 'new_scan') {
+      onNewScan();
+    }
+  };
+
+  ws.onerror = (error) => {
+    console.error('WebSocket error:', error);
+  };
+
+  return ws;
+};
 
 SplashScreen.preventAutoHideAsync();
 
 export default function LecturerDashboard() {
   const params = useLocalSearchParams();
   const currentUserId = params.id as string;
-  
+
   const [fontsLoaded, fontError] = useFonts({
     'THEDISPLAYFONT': require('../assets/fonts/THEDISPLAYFONT-DEMOVERSION.ttf'),
   });
@@ -24,22 +204,12 @@ export default function LecturerDashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
-
-  // Add polling for real-time updates
-  useEffect(() => {
-    const pollInterval = setInterval(() => {
-      setRefreshTrigger(prev => prev + 1);
-    }, 30000); // Poll every 30 seconds
-
-    return () => clearInterval(pollInterval);
-  }, []);
 
   useEffect(() => {
     if (currentUserId) {
       fetchAssignedCourses();
     }
-  }, [currentUserId, refreshTrigger]);
+  }, [currentUserId]);
 
   useEffect(() => {
     const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -56,12 +226,12 @@ export default function LecturerDashboard() {
       const allCourses = await getCourses();
       console.log('Current Lecturer ID:', currentUserId);
       console.log('All Courses:', allCourses);
-      
+
       const assignedCourses = allCourses.filter((course: Course) => {
         console.log('Course Lecturer ID:', course.lecturerId?._id);
         return course.lecturerId?._id === currentUserId;
       });
-      
+
       console.log('Assigned Courses:', assignedCourses);
       setCourses(assignedCourses);
       setError(null);
@@ -83,20 +253,54 @@ export default function LecturerDashboard() {
     setShowLogoutConfirm(true);
   };
 
-  const handleConfirmLogout = () => {
-    router.replace('/');
+  const handleConfirmLogout = async () => {
+    try {
+      // Get the current user data from AsyncStorage
+      const userData = await AsyncStorage.getItem('user');
+      
+      console.log('Logging out lecturer, stored data:', userData);
+      
+      if (userData) {
+        const user = JSON.parse(userData);
+        console.log('Parsed user data:', user);
+        
+        // For better troubleshooting
+        if (user.loginAuditId) {
+          console.log('Found loginAuditId:', user.loginAuditId);
+          const response = await logoutUser(undefined, user.loginAuditId);
+          console.log('Logout response:', response);
+        } else if (user._id) {
+          console.log('Using user._id for logout:', user._id);
+          const response = await logoutUser(user._id);
+          console.log('Logout response:', response);
+        } else {
+          console.log('No user ID available for logout');
+        }
+      } else {
+        console.log('No user data in AsyncStorage');
+      }
+      
+      // Remove user data from storage
+      await AsyncStorage.removeItem('user');
+      console.log('Cleared user data from AsyncStorage');
+      
+      // Navigate to login screen
+      router.replace('/');
+    } catch (error) {
+      console.error('Logout error:', error);
+      // Still proceed with logout even if logging the logout time fails
+      router.replace('/');
+    }
   };
 
-  // Add refresh function
   const handleRefresh = () => {
-    setRefreshTrigger(prev => prev + 1);
+    fetchAssignedCourses();
   };
 
   const generateQRData = (course: Course) => {
-    const now = new Date();
-    const phTime = new Date(now.getTime() + (8 * 60 * 60 * 1000)); // Convert to PH time (UTC+8)
+    const phTime = getPhilippineTime();
     const expiryTime = new Date(phTime.getTime() + (60 * 60 * 1000)); // 1 hour from now
-    
+
     return JSON.stringify({
       courseId: course._id,
       courseCode: course.courseCode,
@@ -126,9 +330,6 @@ export default function LecturerDashboard() {
             </View>
           </View>
           <View style={styles.headerActions}>
-            <TouchableOpacity onPress={handleRefresh} style={styles.refreshButton}>
-              <Ionicons name="refresh" size={24} color="#002147" />
-            </TouchableOpacity>
             <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
               <Ionicons name="log-out-outline" size={32} color="#002147" />
             </TouchableOpacity>
@@ -137,7 +338,7 @@ export default function LecturerDashboard() {
         <Text style={styles.welcomeText}>Lecturer Dashboard</Text>
       </View>
 
-      <ScrollView 
+      <ScrollView
         style={styles.content}
         refreshControl={
           <RefreshControl
@@ -179,7 +380,7 @@ export default function LecturerDashboard() {
               <Ionicons name="log-out-outline" size={48} color="#002147" />
               <Text style={styles.confirmTitle}>Confirm Logout</Text>
             </View>
-            
+
             <Text style={styles.confirmText}>
               Are you sure you want to logout?
             </Text>
@@ -213,11 +414,51 @@ const CourseCard = ({ course }: { course: Course }) => {
   const [attendanceRecords, setAttendanceRecords] = useState<any[]>([]);
   const [remainingTime, setRemainingTime] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
+  const [newScans, setNewScans] = useState(0);
   const qrRef = useRef<any>(null);
   const countdownInterval = useRef<NodeJS.Timeout>();
+  const wsRef = useRef<WebSocket | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
   const [isFullScreen, setIsFullScreen] = useState(false);
+  const lastCheckTime = useRef<Date>(new Date());
+
+  // Setup WebSocket connection
+  useEffect(() => {
+    const handleNewScan = async () => {
+      try {
+        const response = await fetch(`${API_CONFIG.baseURL}/attendance/course/${course._id}`);
+        if (!response.ok) return;
+
+        const records = await response.json();
+        const phTime = getPhilippineTime();
+
+        // Count scans in the last 5 minutes
+        const recentScans = records.reduce((count: number, record: any) => {
+          const recordTime = new Date(record.generatedAt);
+          const timeDiff = phTime.getTime() - recordTime.getTime();
+          if (timeDiff <= 5 * 60 * 1000) { // 5 minutes
+            return count + record.scannedBy.length;
+          }
+          return count;
+        }, 0);
+
+        setNewScans(recentScans);
+      } catch (error) {
+        console.error('Error checking new scans:', error);
+      }
+    };
+
+    // Initialize WebSocket connection
+    wsRef.current = setupWebSocket(course._id, handleNewScan);
+
+    // Cleanup WebSocket connection
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+    };
+  }, [course._id]);
 
   // Check for existing valid QR code
   const checkExistingQRCode = async () => {
@@ -227,10 +468,9 @@ const CourseCard = ({ course }: { course: Course }) => {
         throw new Error('Failed to fetch attendance records');
       }
       const records = await response.json();
-      
+
       // Find the most recent valid QR code
-      const now = new Date();
-      const phTime = new Date(now.getTime() + (8 * 60 * 60 * 1000)); // Current PH time
+      const phTime = getPhilippineTime();
       const validRecord = records.find((record: any) => new Date(record.expiresAt) > phTime);
 
       if (validRecord) {
@@ -248,15 +488,15 @@ const CourseCard = ({ course }: { course: Course }) => {
     }
   };
 
+  // Check countdown timer
   useEffect(() => {
     if (qrData) {
       // Start countdown timer
       countdownInterval.current = setInterval(() => {
-        const now = new Date();
-        const phTime = new Date(now.getTime() + (8 * 60 * 60 * 1000)); // Current PH time
+        const phTime = getPhilippineTime();
         const expiryTime = new Date(qrData.expiresAt);
         const diffInMinutes = Math.floor((expiryTime.getTime() - phTime.getTime()) / (1000 * 60));
-        
+
         if (diffInMinutes <= 0) {
           setRemainingTime('expired');
           clearInterval(countdownInterval.current);
@@ -327,19 +567,66 @@ const CourseCard = ({ course }: { course: Course }) => {
     }
   };
 
+  // Check for new scans
+  useEffect(() => {
+    const checkNewScans = async () => {
+      try {
+        const response = await fetch(`${API_CONFIG.baseURL}/attendance/course/${course._id}`);
+        if (!response.ok) return;
+
+        const records = await response.json();
+        const phTime = getPhilippineTime();
+
+        // Get the most recent record
+        const mostRecentRecord = records.sort((a: any, b: any) =>
+          new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime()
+        )[0];
+
+        if (mostRecentRecord) {
+          const recordTime = new Date(mostRecentRecord.generatedAt);
+          const timeDiff = phTime.getTime() - recordTime.getTime();
+
+          // If the record is from the last 5 minutes
+          if (timeDiff <= 5 * 60 * 1000) {
+            const scanCount = mostRecentRecord.scannedBy.length;
+            if (scanCount > newScans) {
+              setNewScans(scanCount);
+              // Vibrate or play sound to notify
+              if (Platform.OS === 'android') {
+                Vibration.vibrate(500);
+              }
+            }
+          } else {
+            setNewScans(0);
+          }
+        }
+
+        lastCheckTime.current = new Date();
+      } catch (error) {
+        console.error('Error checking new scans:', error);
+      }
+    };
+
+    // Check every 3 seconds
+    const interval = setInterval(checkNewScans, 3000);
+    return () => clearInterval(interval);
+  }, [course._id]);
+
+  // Reset new scans count when viewing attendance
   const handleViewAttendance = async () => {
+    setNewScans(0);
     try {
       const response = await fetch(`${API_CONFIG.baseURL}/attendance/course/${course._id}`);
       if (!response.ok) {
         throw new Error('Failed to fetch attendance records');
       }
       const records = await response.json();
-      
+
       // Sort records by generation time (most recent first)
-      const sortedRecords = records.sort((a: any, b: any) => 
+      const sortedRecords = records.sort((a: any, b: any) =>
         new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime()
       );
-      
+
       setAttendanceRecords(sortedRecords);
       setShowAttendanceModal(true);
     } catch (error) {
@@ -352,7 +639,7 @@ const CourseCard = ({ course }: { course: Course }) => {
     try {
       // Request permission to access media library
       const { status } = await MediaLibrary.requestPermissionsAsync();
-      
+
       if (status !== 'granted') {
         Alert.alert('Permission Denied', 'Please grant permission to save QR code to your gallery.');
         return;
@@ -362,7 +649,7 @@ const CourseCard = ({ course }: { course: Course }) => {
         const uri = await qrRef.current.capture();
         const asset = await MediaLibrary.createAssetAsync(uri);
         await MediaLibrary.createAlbumAsync('CHEQR', asset, false);
-        
+
         Alert.alert('Success', 'QR code saved to gallery successfully!');
       }
     } catch (error) {
@@ -394,7 +681,7 @@ const CourseCard = ({ course }: { course: Course }) => {
         />
         <View style={styles.courseOverlay}>
           <View style={styles.courseActions}>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.courseActionButton}
               onPress={handleGenerateQR}
               disabled={isLoading}
@@ -405,11 +692,18 @@ const CourseCard = ({ course }: { course: Course }) => {
                 <Ionicons name="qr-code-outline" size={24} color="#FFD700" />
               )}
             </TouchableOpacity>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.courseActionButton}
               onPress={handleViewAttendance}
             >
-              <Ionicons name="people-outline" size={24} color="#FFD700" />
+              <View>
+                <Ionicons name="people-outline" size={24} color="#FFD700" />
+                {newScans > 0 && (
+                  <View style={styles.notificationBadge}>
+                    <Text style={styles.notificationText}>{newScans}</Text>
+                  </View>
+                )}
+              </View>
             </TouchableOpacity>
           </View>
         </View>
@@ -425,7 +719,7 @@ const CourseCard = ({ course }: { course: Course }) => {
             <Text style={styles.studentCountText}>{course.students?.length || 0}</Text>
           </View>
         </View>
-        
+
         <View style={styles.schedulesContainer}>
           {course.schedules.map((schedule, index) => (
             <View key={index} style={styles.scheduleCard}>
@@ -455,7 +749,7 @@ const CourseCard = ({ course }: { course: Course }) => {
               <Ionicons name="qr-code-outline" size={48} color="#002147" />
               <Text style={styles.confirmTitle}>Generate QR Code</Text>
             </View>
-            
+
             <Text style={styles.confirmText}>
               This will generate a QR code for attendance that will expire in 1 hour. Are you sure you want to proceed?
             </Text>
@@ -493,20 +787,34 @@ const CourseCard = ({ course }: { course: Course }) => {
                 <Ionicons name="close" size={24} color="#002147" />
               </TouchableOpacity>
             </View>
+            
+            <View style={styles.courseQRInfo}>
+              <Text style={styles.qrCourseCode}>{course.courseCode}</Text>
+              <Text style={styles.qrCourseName}>{course.courseName}</Text>
+            </View>
+            
             <ViewShot ref={qrRef} style={styles.qrContainer}>
               {qrData && (
-                <QRCode
-                  value={qrData.data}
-                  size={200}
-                  color="#002147"
-                  backgroundColor="white"
-                />
+                <>
+                  <QRCode
+                    value={qrData.data}
+                    size={200}
+                    color="#002147"
+                    backgroundColor="white"
+                  />
+                  <View style={styles.qrWatermark}>
+                    <Text style={styles.qrWatermarkText}>{course.courseCode}</Text>
+                  </View>
+                </>
               )}
             </ViewShot>
             <Text style={styles.qrInfo}>
-              This QR code will expire in {remainingTime}
+              This QR code will expire in {remainingTime} (Philippine time)
             </Text>
-            <TouchableOpacity 
+            <Text style={styles.qrWarning}>
+              Important: This QR code is valid ONLY for {course.courseCode}
+            </Text>
+            <TouchableOpacity
               style={styles.saveButton}
               onPress={handleSaveQRCode}
             >
@@ -533,10 +841,10 @@ const CourseCard = ({ course }: { course: Course }) => {
               </View>
               <View style={styles.modalActions}>
                 <TouchableOpacity onPress={handleFullScreen} style={styles.fullScreenButton}>
-                  <Ionicons 
-                    name={isFullScreen ? "contract-outline" : "expand-outline"} 
-                    size={24} 
-                    color="#002147" 
+                  <Ionicons
+                    name={isFullScreen ? "contract-outline" : "expand-outline"}
+                    size={24}
+                    color="#002147"
                   />
                 </TouchableOpacity>
                 <TouchableOpacity onPress={() => setShowAttendanceModal(false)}>
@@ -555,7 +863,7 @@ const CourseCard = ({ course }: { course: Course }) => {
                 placeholderTextColor="#999"
               />
               {searchQuery ? (
-                <TouchableOpacity 
+                <TouchableOpacity
                   onPress={() => setSearchQuery('')}
                   style={styles.clearSearchButton}
                 >
@@ -581,12 +889,7 @@ const CourseCard = ({ course }: { course: Course }) => {
                     onPress={() => setSelectedSession(record._id)}
                   >
                     <Text style={[styles.sessionTabText, selectedSession === record._id && styles.selectedSessionTabText]}>
-                      {new Date(record.generatedAt).toLocaleDateString('en-US', {
-                        month: 'short',
-                        day: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })}
+                      {formatSessionTabTime(record.generatedAt)}
                     </Text>
                   </TouchableOpacity>
                 ))}
@@ -608,18 +911,10 @@ const CourseCard = ({ course }: { course: Course }) => {
                     <View key={index} style={styles.attendanceSession}>
                       <View style={styles.sessionHeader}>
                         <Text style={styles.sessionDate}>
-                          {new Date(record.generatedAt).toLocaleDateString('en-US', {
-                            weekday: 'long',
-                            year: 'numeric',
-                            month: 'long',
-                            day: 'numeric'
-                          })}
+                          {formatPhilippineDate(record.generatedAt)}
                         </Text>
                         <Text style={styles.sessionTime}>
-                          {new Date(record.generatedAt).toLocaleTimeString('en-US', {
-                            hour: '2-digit',
-                            minute: '2-digit'
-                          })}
+                          {formatPhilippineTime(record.generatedAt)}
                         </Text>
                       </View>
                       <View style={styles.studentsList}>
@@ -633,12 +928,12 @@ const CourseCard = ({ course }: { course: Course }) => {
                                 ID: {scan.studentId.idNumber}
                               </Text>
                             </View>
-                            <Text style={styles.scanTime}>
-                              {new Date(scan.scannedAt).toLocaleTimeString('en-US', {
-                                hour: '2-digit',
-                                minute: '2-digit'
-                              })}
-                            </Text>
+                            <View style={styles.scanTimeContainer}>
+                              <Ionicons name="checkmark-circle" size={16} color="#4CAF50" style={styles.checkmarkIcon} />
+                              <Text style={styles.scanTime}>
+                                {formatPhilippineTime(scan.scannedAt)}
+                              </Text>
+                            </View>
                           </View>
                         ))}
                       </View>
@@ -707,7 +1002,6 @@ const styles = StyleSheet.create({
   },
   logoutButton: {
     padding: 8,
-    marginLeft: 10,
   },
   content: {
     flex: 1,
@@ -729,8 +1023,8 @@ const styles = StyleSheet.create({
   emptyState: {
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 20,
-    marginTop: 20,
+    padding: 32,
+    marginTop: 24,
   },
   emptyStateText: {
     fontSize: 16,
@@ -952,44 +1246,52 @@ const styles = StyleSheet.create({
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#fff',
     margin: 16,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    height: 40,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    height: 48,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
   searchIcon: {
-    marginRight: 8,
+    marginRight: 12,
+    color: '#666',
   },
   searchInput: {
     flex: 1,
-    height: 40,
+    height: 48,
     fontSize: 16,
     color: '#333',
   },
   clearSearchButton: {
-    padding: 4,
+    padding: 8,
   },
   sessionTabs: {
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
     backgroundColor: '#fff',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
   },
   sessionTab: {
     paddingHorizontal: 16,
     paddingVertical: 12,
     marginHorizontal: 4,
+    borderRadius: 20,
   },
   selectedSessionTab: {
-    borderBottomWidth: 2,
-    borderBottomColor: '#002147',
+    backgroundColor: '#002147',
   },
   sessionTabText: {
     fontSize: 14,
     color: '#666',
   },
   selectedSessionTabText: {
-    color: '#002147',
+    color: '#fff',
     fontWeight: '600',
   },
   attendanceList: {
@@ -999,21 +1301,27 @@ const styles = StyleSheet.create({
   noAttendanceText: {
     fontSize: 16,
     color: '#666',
-    marginTop: 16,
+    marginTop: 24,
     textAlign: 'center',
   },
   attendanceSession: {
-    marginBottom: 20,
-    backgroundColor: '#f8f9fa',
-    borderRadius: 12,
-    padding: 15,
+    marginBottom: 24,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 0,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    overflow: 'hidden',
   },
   sessionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
-    paddingBottom: 10,
+    padding: 16,
+    backgroundColor: '#f8f9fa',
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
   },
@@ -1025,18 +1333,28 @@ const styles = StyleSheet.create({
   sessionTime: {
     fontSize: 14,
     color: '#666',
+    backgroundColor: '#fff',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    overflow: 'hidden',
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1,
   },
   studentsList: {
-    marginTop: 5,
+    padding: 16,
   },
   studentItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    backgroundColor: '#fff',
-    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
     marginBottom: 8,
     elevation: 1,
     shadowColor: '#000',
@@ -1046,21 +1364,39 @@ const styles = StyleSheet.create({
   },
   studentInfo: {
     flex: 1,
+    marginRight: 12,
   },
   studentName: {
     fontSize: 16,
     fontWeight: '600',
     color: '#002147',
+    marginBottom: 4,
   },
   studentId: {
     fontSize: 14,
     color: '#666',
-    marginTop: 2,
+  },
+  scanTimeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    gap: 4,
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1,
+  },
+  checkmarkIcon: {
+    marginRight: 2,
   },
   scanTime: {
     fontSize: 14,
     color: '#666',
-    marginLeft: 10,
+    fontWeight: '500',
   },
   fullScreenModal: {
     backgroundColor: '#fff',
@@ -1105,7 +1441,56 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
   },
-  refreshButton: {
-    padding: 8,
+  notificationBadge: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    backgroundColor: '#FF3B30',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+  },
+  notificationText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  courseQRInfo: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  qrCourseCode: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#002147',
+  },
+  qrCourseName: {
+    fontSize: 16,
+    color: '#666',
+  },
+  qrWatermark: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    opacity: 0.1,
+  },
+  qrWatermarkText: {
+    fontSize: 24,
+    color: '#002147',
+    fontWeight: 'bold',
+  },
+  qrWarning: {
+    fontSize: 12,
+    color: '#FF3B30',
+    textAlign: 'center',
+    marginTop: 10,
+    fontWeight: 'bold',
   },
 }); 
