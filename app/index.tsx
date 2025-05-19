@@ -1,22 +1,41 @@
-import React, { useState, useRef } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, Modal, ActivityIndicator, Image } from 'react-native';
+import React, { useState, useRef, useEffect } from 'react';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  TextInput, 
+  TouchableOpacity, 
+  Modal, 
+  ActivityIndicator, 
+  Image,
+  StatusBar,
+  Dimensions,
+  Platform,
+  KeyboardAvoidingView,
+  ScrollView,
+  SafeAreaView,
+  TouchableWithoutFeedback,
+  Keyboard
+} from 'react-native';
 import { router } from 'expo-router';
 import { authenticateUser, resetPassword } from '../lib/api';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { LinearGradient } from 'expo-linear-gradient';
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
+
+const { width, height } = Dimensions.get('window');
 
 export default function LoginScreen() {
   const [fontsLoaded] = useFonts({
     'THEDISPLAYFONT': require('../assets/fonts/THEDISPLAYFONT-DEMOVERSION.ttf'),
   });
 
-  React.useEffect(() => {
-    console.log('Font loading status:', fontsLoaded);
+  useEffect(() => {
     if (fontsLoaded) {
       SplashScreen.hideAsync();
     }
@@ -57,14 +76,10 @@ export default function LoginScreen() {
     setShowModal(false);
     if (modalType === 'success' && userData) {
       try {
-        // Store user data in AsyncStorage
-        console.log('Storing user data in AsyncStorage:', userData);
         await AsyncStorage.setItem('user', JSON.stringify(userData));
-        console.log('User data stored successfully');
         
         // Check if user has multiple roles
         if (userData.roles && userData.roles.length > 1) {
-          console.log('User has multiple roles:', userData.roles);
           setAvailableRoles(userData.roles);
           setShowRoleSelectionModal(true);
           return;
@@ -219,381 +234,499 @@ export default function LoginScreen() {
     }
   };
 
+  const dismissKeyboard = () => {
+    Keyboard.dismiss();
+  };
+
   if (!fontsLoaded) {
     return null;
   }
 
   return (
-    <View style={styles.container}>
-      <View style={styles.logoContainer}>
-        <Image
-          source={require('../assets/images/logo.png')}
-          style={styles.logoImage}
-          resizeMode="contain"
+    <TouchableWithoutFeedback onPress={dismissKeyboard}>
+      <View style={styles.container}>
+        <StatusBar 
+          barStyle="light-content" 
+          backgroundColor="#1c3a70"
+          translucent={true}
         />
-        <Text style={[styles.logoText, { fontFamily: 'THEDISPLAYFONT' }]}>CHEQR</Text>
-      </View>
-
-      <View style={styles.formContainer}>
-        <Text style={styles.title}>Welcome Back</Text>
-        <Text style={styles.subtitle}>Sign in to continue</Text>
-
-        <View style={styles.inputContainer}>
-          <Ionicons name="person-outline" size={20} color="#666" style={styles.inputIcon} />
-          <TextInput
-            style={styles.input}
-            placeholder="Username"
-            placeholderTextColor="#999"
-            value={username}
-            onChangeText={setUsername}
-            autoCapitalize="none"
-            editable={!isLoading}
-          />
-        </View>
-
-        <View style={styles.inputContainer}>
-          <Ionicons name="lock-closed-outline" size={20} color="#666" style={styles.inputIcon} />
-          <TextInput
-            style={styles.passwordInput}
-            placeholder="Password"
-            placeholderTextColor="#999"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry={!showPassword}
-            editable={!isLoading}
-          />
-          <TouchableOpacity
-            style={styles.eyeIcon}
-            onPress={() => setShowPassword(!showPassword)}
-            disabled={isLoading}
-          >
-            <Ionicons
-              name={showPassword ? 'eye-off' : 'eye'}
-              size={20}
-              color="#666"
-            />
-          </TouchableOpacity>
-        </View>
-
-        <TouchableOpacity
-          style={styles.forgotPasswordButton}
-          onPress={handleForgotPassword}
-        >
-          <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.button, isLoading && styles.buttonDisabled]}
-          onPress={handleLogin}
-          disabled={isLoading}
-        >
-          {isLoading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.buttonText}>Sign In</Text>
-          )}
-        </TouchableOpacity>
-      </View>
-
-      <Modal
-        visible={showModal}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={handleModalClose}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={[
-              styles.modalIconContainer,
-              modalType === 'success' ? styles.successIcon : styles.errorIcon
-            ]}>
-              <Ionicons
-                name={modalType === 'success' ? 'checkmark-circle' : 'alert-circle'}
-                size={40}
-                color="#fff"
-              />
-            </View>
-            <Text style={[
-              styles.modalTitle,
-              modalType === 'success' ? styles.successTitle : styles.errorTitle
-            ]}>
-              {modalTitle}
-            </Text>
-            <Text style={styles.modalMessage}>{modalMessage}</Text>
-            <TouchableOpacity
-              style={[
-                styles.modalButton,
-                modalType === 'success' ? styles.successButton : styles.errorButton
-              ]}
-              onPress={handleModalClose}
-            >
-              <Text style={styles.modalButtonText}>OK</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal
-        visible={showForgotPasswordModal}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setShowForgotPasswordModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Reset Password</Text>
-            <Text style={styles.modalMessage}>Enter your email, username, and new password</Text>
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
+          style={styles.keyboardAvoidingView}>
+          <ScrollView 
+            contentContainerStyle={styles.scrollContainer}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled">
             
-            <View style={styles.inputContainer}>
-              <Ionicons name="mail-outline" size={20} color="#666" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="Email"
-                placeholderTextColor="#999"
-                value={email}
-                onChangeText={setEmail}
-                autoCapitalize="none"
-                keyboardType="email-address"
-                editable={!isResettingPassword}
-              />
-            </View>
+            <LinearGradient
+              colors={['#1c3a70', '#2c5282', '#3a6298']}
+              style={styles.headerGradient}>
+              <View style={styles.logoContainer}>
+                <Image
+                  source={require('../assets/images/logo.png')}
+                  style={styles.logoImage}
+                  resizeMode="contain"
+                />
+                <Text style={[styles.logoText, { fontFamily: 'THEDISPLAYFONT' }]}>CHEQR</Text>
+                <Text style={styles.logoTagline}>Davao Oriental State University Attendance System</Text>
+              </View>
+            </LinearGradient>
 
-            <View style={styles.inputContainer}>
-              <Ionicons name="person-outline" size={20} color="#666" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="Username"
-                placeholderTextColor="#999"
-                value={username}
-                onChangeText={setUsername}
-                autoCapitalize="none"
-                editable={!isResettingPassword}
-              />
-            </View>
+            <View style={styles.formContainer}>
+              <View style={styles.formHeader}>
+                <Text style={styles.title}>Welcome Back</Text>
+                <Text style={styles.subtitle}>Sign in to continue to your account</Text>
+              </View>
 
-            <View style={styles.inputContainer}>
-              <Ionicons name="lock-closed-outline" size={20} color="#666" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="New Password"
-                placeholderTextColor="#999"
-                value={newPassword}
-                onChangeText={setNewPassword}
-                secureTextEntry
-                editable={!isResettingPassword}
-              />
-            </View>
+              <View style={styles.inputWrapper}>
+                <Text style={styles.inputLabel}>Username</Text>
+                <View style={styles.inputContainer}>
+                  <MaterialIcons name="account-circle" size={22} color="#506690" style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Enter your username"
+                    placeholderTextColor="#8896AB"
+                    value={username}
+                    onChangeText={setUsername}
+                    autoCapitalize="none"
+                    editable={!isLoading}
+                  />
+                </View>
+              </View>
 
-            <View style={styles.inputContainer}>
-              <Ionicons name="lock-closed-outline" size={20} color="#666" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="Confirm New Password"
-                placeholderTextColor="#999"
-                value={confirmPassword}
-                onChangeText={setConfirmPassword}
-                secureTextEntry
-                editable={!isResettingPassword}
-              />
-            </View>
+              <View style={styles.inputWrapper}>
+                <Text style={styles.inputLabel}>Password</Text>
+                <View style={styles.inputContainer}>
+                  <MaterialIcons name="lock" size={22} color="#506690" style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.passwordInput}
+                    placeholder="Enter your password"
+                    placeholderTextColor="#8896AB"
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry={!showPassword}
+                    editable={!isLoading}
+                  />
+                  <TouchableOpacity
+                    style={styles.eyeIcon}
+                    onPress={() => setShowPassword(!showPassword)}
+                    disabled={isLoading}
+                  >
+                    <MaterialIcons
+                      name={showPassword ? 'visibility-off' : 'visibility'}
+                      size={22}
+                      color="#506690"
+                    />
+                  </TouchableOpacity>
+                </View>
+              </View>
 
-            <View style={styles.modalButtons}>
               <TouchableOpacity
-                style={[styles.modalButton, styles.cancelButton]}
-                onPress={() => {
-                  setShowForgotPasswordModal(false);
-                  setEmail('');
-                  setUsername('');
-                  setNewPassword('');
-                  setConfirmPassword('');
-                }}
-                disabled={isResettingPassword}
+                style={styles.forgotPasswordButton}
+                onPress={handleForgotPassword}
               >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
+                <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
               </TouchableOpacity>
+
               <TouchableOpacity
-                style={[styles.modalButton, styles.submitButton]}
-                onPress={handleResetPassword}
-                disabled={isResettingPassword}
+                style={[styles.button, isLoading && styles.buttonDisabled]}
+                onPress={handleLogin}
+                disabled={isLoading}
               >
-                {isResettingPassword ? (
+                {isLoading ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
-                  <Text style={styles.submitButtonText}>Reset Password</Text>
+                  <>
+                    <Text style={styles.buttonText}>Sign In</Text>
+                    <MaterialIcons name="arrow-forward" size={20} color="#fff" style={styles.buttonIcon} />
+                  </>
                 )}
+              </TouchableOpacity>
+
+              <View style={styles.footer}>
+                <Text style={styles.footerText}>© {new Date().getFullYear()} CHEQR - All Rights Reserved</Text>
+              </View>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+
+        {/* Success/Error Modal */}
+        <Modal
+          visible={showModal}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={handleModalClose}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={[
+                styles.modalIconContainer,
+                modalType === 'success' ? styles.successIcon : styles.errorIcon
+              ]}>
+                <MaterialIcons
+                  name={modalType === 'success' ? 'check-circle' : 'error'}
+                  size={40}
+                  color="#fff"
+                />
+              </View>
+              <Text style={[
+                styles.modalTitle,
+                modalType === 'success' ? styles.successTitle : styles.errorTitle
+              ]}>
+                {modalTitle}
+              </Text>
+              <Text style={styles.modalMessage}>{modalMessage}</Text>
+              <TouchableOpacity
+                style={[
+                  styles.modalButton,
+                  modalType === 'success' ? styles.successButton : styles.errorButton
+                ]}
+                onPress={handleModalClose}
+              >
+                <Text style={styles.modalButtonText}>OK</Text>
               </TouchableOpacity>
             </View>
           </View>
-        </View>
-      </Modal>
+        </Modal>
 
-      {/* Role Selection Modal */}
-      <Modal
-        visible={showRoleSelectionModal}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={handleCancelRoleSelection}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.roleSelectionIconContainer}>
-              <Ionicons name="people" size={40} color="#fff" />
-            </View>
-            <Text style={styles.roleSelectionTitle}>Select Role</Text>
-            <TouchableOpacity 
-              style={styles.closeRoleModalButton}
-              onPress={handleCancelRoleSelection}
-            >
-              <Ionicons name="close" size={24} color="#666" />
-            </TouchableOpacity>
-            <Text style={styles.modalMessage}>
-              Please select which role you'd like to use:
-            </Text>
-            
-            <View style={styles.roleButtonsContainer}>
-              {availableRoles.map((role, index) => (
-                <TouchableOpacity
-                  key={role}
-                  style={[
-                    styles.roleButton,
-                    role === 'admin' ? styles.adminRoleButton : 
-                    role === 'lecturer' ? styles.lecturerRoleButton : 
-                    styles.studentRoleButton,
-                    selectedRoleIndex === index && styles.selectedRoleButton
-                  ]}
-                  onPress={() => {
-                    handleRoleSelect(role, index);
-                  }}
-                >
-                  <View style={[
-                    styles.roleIconContainer,
-                    role === 'admin' ? styles.adminIconContainer : 
-                    role === 'lecturer' ? styles.lecturerIconContainer : 
-                    styles.studentIconContainer
-                  ]}>
-                    <Ionicons
-                      name={
-                        role === 'admin' ? 'shield-checkmark' :
-                        role === 'lecturer' ? 'school' : 'people'
-                      }
-                      size={24}
-                      color={
-                        role === 'admin' ? '#1a73e8' :
-                        role === 'lecturer' ? '#4CAF50' :
-                        '#FF9800'
-                      }
+        {/* Forgot Password Modal */}
+        <Modal
+          visible={showForgotPasswordModal}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => setShowForgotPasswordModal(false)}
+        >
+          <TouchableWithoutFeedback onPress={dismissKeyboard}>
+            <View style={styles.modalOverlay}>
+              <View style={styles.passwordResetModalContent}>
+                <View style={styles.modalHeaderRow}>
+                  <Text style={styles.passwordResetModalTitle}>Reset Password</Text>
+                  <TouchableOpacity
+                    style={styles.closeModalButton}
+                    onPress={() => {
+                      setShowForgotPasswordModal(false);
+                      setEmail('');
+                      setUsername('');
+                      setNewPassword('');
+                      setConfirmPassword('');
+                    }}
+                  >
+                    <MaterialIcons name="close" size={24} color="#506690" />
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.passwordResetModalSubtitle}>
+                  Please provide your email and username to reset your password
+                </Text>
+                
+                <View style={styles.inputWrapper}>
+                  <Text style={styles.inputLabel}>Email</Text>
+                  <View style={styles.inputContainer}>
+                    <MaterialIcons name="email" size={22} color="#506690" style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Enter your email address"
+                      placeholderTextColor="#8896AB"
+                      value={email}
+                      onChangeText={setEmail}
+                      autoCapitalize="none"
+                      keyboardType="email-address"
+                      editable={!isResettingPassword}
                     />
                   </View>
-                  <View style={styles.roleTextContainer}>
-                    <Text style={styles.roleButtonText}>
-                      {role.charAt(0).toUpperCase() + role.slice(1)}
-                    </Text>
-                    <Text style={styles.roleDescription}>
-                      {role === 'admin' 
-                        ? 'Manage users, courses, and system settings' 
-                        : role === 'lecturer' 
-                        ? 'Manage courses and track student attendance' 
-                        : 'View courses and mark attendance'}
-                    </Text>
+                </View>
+
+                <View style={styles.inputWrapper}>
+                  <Text style={styles.inputLabel}>Username</Text>
+                  <View style={styles.inputContainer}>
+                    <MaterialIcons name="account-circle" size={22} color="#506690" style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Enter your username"
+                      placeholderTextColor="#8896AB"
+                      value={username}
+                      onChangeText={setUsername}
+                      autoCapitalize="none"
+                      editable={!isResettingPassword}
+                    />
                   </View>
-                  <Ionicons name="chevron-forward" size={24} color="#ccc" />
+                </View>
+
+                <View style={styles.inputWrapper}>
+                  <Text style={styles.inputLabel}>New Password</Text>
+                  <View style={styles.inputContainer}>
+                    <MaterialIcons name="lock" size={22} color="#506690" style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Enter new password"
+                      placeholderTextColor="#8896AB"
+                      value={newPassword}
+                      onChangeText={setNewPassword}
+                      secureTextEntry
+                      editable={!isResettingPassword}
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.inputWrapper}>
+                  <Text style={styles.inputLabel}>Confirm New Password</Text>
+                  <View style={styles.inputContainer}>
+                    <MaterialIcons name="lock" size={22} color="#506690" style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Confirm new password"
+                      placeholderTextColor="#8896AB"
+                      value={confirmPassword}
+                      onChangeText={setConfirmPassword}
+                      secureTextEntry
+                      editable={!isResettingPassword}
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity
+                    style={[styles.modalCancelButton]}
+                    onPress={() => {
+                      setShowForgotPasswordModal(false);
+                      setEmail('');
+                      setUsername('');
+                      setNewPassword('');
+                      setConfirmPassword('');
+                    }}
+                    disabled={isResettingPassword}
+                  >
+                    <Text style={styles.modalCancelButtonText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.modalPrimaryButton]}
+                    onPress={handleResetPassword}
+                    disabled={isResettingPassword}
+                  >
+                    {isResettingPassword ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <Text style={styles.modalPrimaryButtonText}>Reset Password</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </TouchableWithoutFeedback>
+        </Modal>
+
+        {/* Role Selection Modal */}
+        <Modal
+          visible={showRoleSelectionModal}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={handleCancelRoleSelection}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.roleModalContent}>
+              <View style={styles.roleSelectionHeader}>
+                <View style={styles.roleSelectionIconContainer}>
+                  <MaterialIcons name="people-alt" size={35} color="#fff" />
+                </View>
+                <Text style={styles.roleSelectionTitle}>Select Your Role</Text>
+                <TouchableOpacity 
+                  style={styles.closeRoleModalButton}
+                  onPress={handleCancelRoleSelection}
+                >
+                  <MaterialIcons name="close" size={24} color="#506690" />
                 </TouchableOpacity>
-              ))}
+              </View>
+              <Text style={styles.roleSelectionSubtitle}>
+                Please select which role you'd like to use:
+              </Text>
+              
+              <View style={styles.roleButtonsContainer}>
+                {availableRoles.map((role, index) => (
+                  <TouchableOpacity
+                    key={role}
+                    style={[
+                      styles.roleButton,
+                      role === 'admin' ? styles.adminRoleButton : 
+                      role === 'lecturer' ? styles.lecturerRoleButton : 
+                      styles.studentRoleButton,
+                      selectedRoleIndex === index && styles.selectedRoleButton
+                    ]}
+                    onPress={() => {
+                      handleRoleSelect(role, index);
+                    }}
+                  >
+                    <View style={[
+                      styles.roleIconContainer,
+                      role === 'admin' ? styles.adminIconContainer : 
+                      role === 'lecturer' ? styles.lecturerIconContainer : 
+                      styles.studentIconContainer
+                    ]}>
+                      <MaterialIcons
+                        name={
+                          role === 'admin' ? 'admin-panel-settings' :
+                          role === 'lecturer' ? 'school' : 'people'
+                        }
+                        size={28}
+                        color={
+                          role === 'admin' ? '#1c3a70' :
+                          role === 'lecturer' ? '#2D5F2D' :
+                          '#7D4600'
+                        }
+                      />
+                    </View>
+                    <View style={styles.roleTextContainer}>
+                      <Text style={styles.roleButtonText}>
+                        {role.charAt(0).toUpperCase() + role.slice(1)}
+                      </Text>
+                      <Text style={styles.roleDescription}>
+                        {role === 'admin' 
+                          ? 'Manage users, courses, and system settings' 
+                          : role === 'lecturer' 
+                          ? 'Manage courses and track student attendance' 
+                          : 'View courses and mark attendance'}
+                      </Text>
+                    </View>
+                    <MaterialIcons 
+                      name="arrow-forward-ios" 
+                      size={18} 
+                      color="#506690" 
+                      style={styles.roleSelectorArrow}
+                    />
+                  </TouchableOpacity>
+                ))}
+              </View>
             </View>
           </View>
-        </View>
-      </Modal>
-    </View>
+        </Modal>
+      </View>
+    </TouchableWithoutFeedback>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#f5f7fa',
+  },
+  keyboardAvoidingView: {
+    flex: 1,
+  },
+  scrollContainer: {
+    flexGrow: 1,
+  },
+  headerGradient: {
+    height: height * 0.35,
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 24) + 10 : 0,
   },
   logoContainer: {
-    height: '30%',
+    height: '100%',
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#1a73e8',
   },
   logoImage: {
-    width: 100,
-    height: 100,
-    marginBottom: 10,
+    width: 85,
+    height: 85,
+    marginBottom: 15,
   },
   logoText: {
-    fontSize: 32,
+    fontSize: 36,
     fontWeight: 'bold',
     color: '#fff',
+    letterSpacing: 1,
+  },
+  logoTagline: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.85)',
+    marginTop: 8,
+    letterSpacing: 0.5,
   },
   formContainer: {
     flex: 1,
-    padding: 30,
+    padding: 25,
     backgroundColor: '#fff',
     borderTopLeftRadius: 30,
     borderTopRightRadius: 30,
     marginTop: -30,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 8,
+  },
+  formHeader: {
+    marginBottom: 25,
   },
   title: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#1a73e8',
+    color: '#1c3a70',
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 16,
-    color: '#666',
-    marginBottom: 30,
+    color: '#506690',
+    lineHeight: 22,
+  },
+  inputWrapper: {
+    marginBottom: 20,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1c3a70',
+    marginBottom: 8,
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#f8f9fa',
     borderRadius: 12,
-    marginBottom: 20,
     borderWidth: 1,
-    borderColor: '#e9ecef',
+    borderColor: '#e7eaf0',
+    overflow: 'hidden',
   },
   inputIcon: {
     marginLeft: 15,
   },
   input: {
     flex: 1,
-    height: 50,
+    height: 52,
     paddingHorizontal: 15,
-    color: '#333',
+    color: '#2d3748',
+    fontSize: 15,
   },
   passwordInput: {
     flex: 1,
-    height: 50,
+    height: 52,
     paddingHorizontal: 15,
-    color: '#333',
+    color: '#2d3748',
+    fontSize: 15,
   },
   eyeIcon: {
     padding: 15,
   },
   forgotPasswordButton: {
     alignSelf: 'flex-end',
-    marginBottom: 20,
+    marginBottom: 25,
+    paddingVertical: 5,
   },
   forgotPasswordText: {
-    color: '#1a73e8',
+    color: '#1c3a70',
     fontSize: 14,
+    fontWeight: '600',
   },
   button: {
-    height: 50,
-    backgroundColor: '#1a73e8',
+    height: 54,
+    backgroundColor: '#1c3a70',
     borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
     marginTop: 10,
+    flexDirection: 'row',
     elevation: 3,
-    shadowColor: '#1a73e8',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
+    shadowColor: '#1c3a70',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 5,
   },
   buttonDisabled: {
     opacity: 0.7,
@@ -601,11 +734,23 @@ const styles = StyleSheet.create({
   buttonText: {
     color: '#fff',
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '600',
+    letterSpacing: 0.5,
+  },
+  buttonIcon: {
+    marginLeft: 8,
+  },
+  footer: {
+    marginTop: 40,
+    alignItems: 'center',
+  },
+  footerText: {
+    fontSize: 12,
+    color: '#8896AB',
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(23, 43, 77, 0.7)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -622,19 +767,65 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 4,
   },
+  passwordResetModalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 25,
+    width: '90%',
+    maxWidth: 450,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+  },
+  roleModalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 25,
+    width: '90%',
+    maxWidth: 450,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+  },
+  modalHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
+    marginBottom: 10,
+  },
+  passwordResetModalTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#1c3a70',
+    flex: 1,
+  },
+  passwordResetModalSubtitle: {
+    fontSize: 15,
+    color: '#506690',
+    marginBottom: 25,
+    lineHeight: 22,
+  },
+  closeModalButton: {
+    padding: 5,
+  },
   modalIconContainer: {
-    width: 80,
-    height: 80,
+    width: 75,
+    height: 75,
     borderRadius: 40,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 20,
   },
   successIcon: {
-    backgroundColor: '#34C759',
+    backgroundColor: '#10B981',
   },
   errorIcon: {
-    backgroundColor: '#FF3B30',
+    backgroundColor: '#EF4444',
   },
   modalTitle: {
     fontSize: 22,
@@ -643,16 +834,16 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   successTitle: {
-    color: '#34C759',
+    color: '#10B981',
   },
   errorTitle: {
-    color: '#FF3B30',
+    color: '#EF4444',
   },
   modalMessage: {
     fontSize: 16,
     textAlign: 'center',
     marginBottom: 25,
-    color: '#666',
+    color: '#506690',
     lineHeight: 24,
   },
   modalButton: {
@@ -668,10 +859,10 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
   },
   successButton: {
-    backgroundColor: '#34C759',
+    backgroundColor: '#10B981',
   },
   errorButton: {
-    backgroundColor: '#FF3B30',
+    backgroundColor: '#EF4444',
   },
   modalButtonText: {
     color: '#fff',
@@ -681,114 +872,139 @@ const styles = StyleSheet.create({
   modalButtons: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 20,
+    marginTop: 25,
   },
-  cancelButton: {
-    backgroundColor: '#f0f0f0',
+  modalCancelButton: {
+    backgroundColor: '#f0f4f9',
     flex: 1,
     marginRight: 10,
-  },
-  submitButton: {
-    backgroundColor: '#1a73e8',
-    flex: 1,
-  },
-  cancelButtonText: {
-    color: '#333',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  submitButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  roleSelectionIconContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#1a73e8',
+    borderRadius: 12,
+    height: 50,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#e7eaf0',
+  },
+  modalPrimaryButton: {
+    backgroundColor: '#1c3a70',
+    flex: 1,
+    borderRadius: 12,
+    height: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalCancelButtonText: {
+    color: '#506690',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  modalPrimaryButtonText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  roleSelectionHeader: {
+    alignItems: 'center',
+    position: 'relative',
+    marginBottom: 15,
+  },
+  roleSelectionIconContainer: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: '#1c3a70',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 15,
   },
   roleSelectionTitle: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: 'bold',
-    marginBottom: 10,
-    color: '#1a73e8',
+    color: '#1c3a70',
     textAlign: 'center',
+  },
+  roleSelectionSubtitle: {
+    fontSize: 15,
+    textAlign: 'center',
+    color: '#506690',
+    marginBottom: 20,
+    lineHeight: 22,
+  },
+  closeRoleModalButton: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    padding: 5,
   },
   roleButtonsContainer: {
     flexDirection: 'column',
     width: '100%',
-    marginTop: 20,
-    gap: 12,
+    marginTop: 10,
+    gap: 14,
   },
   roleButton: {
     padding: 16,
-    borderRadius: 12,
+    borderRadius: 14,
     backgroundColor: '#fff',
     alignItems: 'center',
     flexDirection: 'row',
     borderWidth: 1,
-    borderColor: '#e9ecef',
+    borderColor: '#e7eaf0',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.05,
     shadowRadius: 4,
     elevation: 2,
   },
   adminRoleButton: {
-    borderLeftWidth: 4,
-    borderLeftColor: '#1a73e8',
+    borderLeftWidth: 5,
+    borderLeftColor: '#1c3a70',
   },
   lecturerRoleButton: {
-    borderLeftWidth: 4,
-    borderLeftColor: '#4CAF50',
+    borderLeftWidth: 5,
+    borderLeftColor: '#2D5F2D',
   },
   studentRoleButton: {
-    borderLeftWidth: 4,
-    borderLeftColor: '#FF9800',
+    borderLeftWidth: 5,
+    borderLeftColor: '#7D4600',
   },
   roleIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+    width: 48,
+    height: 48,
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 16,
   },
   adminIconContainer: {
-    backgroundColor: 'rgba(26, 115, 232, 0.1)',
+    backgroundColor: 'rgba(28, 58, 112, 0.1)',
   },
   lecturerIconContainer: {
-    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+    backgroundColor: 'rgba(45, 95, 45, 0.1)',
   },
   studentIconContainer: {
-    backgroundColor: 'rgba(255, 152, 0, 0.1)',
+    backgroundColor: 'rgba(125, 70, 0, 0.1)',
   },
   roleTextContainer: {
     flex: 1,
   },
   roleButtonText: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '600',
-    color: '#333',
+    color: '#2d3748',
+    marginBottom: 2,
   },
   roleDescription: {
     fontSize: 14,
-    color: '#666',
-    marginTop: 4,
+    color: '#506690',
+    lineHeight: 20,
   },
   selectedRoleButton: {
-    backgroundColor: '#f5f9ff',
-    borderLeftWidth: 4,
+    backgroundColor: '#f0f4f9',
+    borderWidth: 1,
+    borderColor: '#1c3a70',
   },
-  closeRoleModalButton: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    padding: 10,
-    zIndex: 10,
+  roleSelectorArrow: {
+    marginLeft: 10,
   },
 }); 

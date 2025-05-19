@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, TextInput, ActivityIndicator, Image, ImageBackground, FlatList, Dimensions, Animated, PanResponder } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, TextInput, ActivityIndicator, Image, ImageBackground, FlatList, Dimensions, Animated, PanResponder, StatusBar, Platform, Keyboard, SafeAreaView } from 'react-native';
 import { router } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { MaterialIcons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import { User, getUsers, createCourse, Course, getCourses, deleteCourse, updateCourse } from '../lib/api';
+import { LinearGradient } from 'expo-linear-gradient';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -13,6 +14,11 @@ interface ScheduleEntry {
   startTime: string;
   endTime: string;
 }
+
+const SCREEN_HEIGHT = Dimensions.get('window').height;
+const SCREEN_WIDTH = Dimensions.get('window').width;
+const DRAG_THRESHOLD = 50;
+const ITEMS_PER_PAGE = 20;
 
 export default function ManageCourses() {
   const [fontsLoaded, fontError] = useFonts({
@@ -56,11 +62,9 @@ export default function ManageCourses() {
   const [isSaving, setIsSaving] = useState(false);
   const [drawerHeight] = useState(new Animated.Value(0));
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const screenHeight = Dimensions.get('window').height;
   const [page, setPage] = useState(1);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasMoreCourses, setHasMoreCourses] = useState(true);
-  const ITEMS_PER_PAGE = 20;
 
   const panResponder = PanResponder.create({
     onStartShouldSetPanResponder: () => true,
@@ -114,13 +118,13 @@ export default function ManageCourses() {
         setIsLoadingMore(true);
       }
 
-      const coursesData = await getCourses(pageNumber, ITEMS_PER_PAGE);
+      const coursesData = await getCourses();
       
       if (shouldAppend) {
         // Filter out any potential duplicates before appending
         setCourses(prevCourses => {
           const existingIds = new Set(prevCourses.map(course => course._id));
-          const newCourses = coursesData.filter(course => !existingIds.has(course._id));
+          const newCourses = coursesData.filter((course: Course) => !existingIds.has(course._id));
           return [...prevCourses, ...newCourses];
         });
       } else {
@@ -146,7 +150,7 @@ export default function ManageCourses() {
   const openDrawer = () => {
     setIsDrawerOpen(true);
     Animated.spring(drawerHeight, {
-      toValue: screenHeight * 0.9,
+      toValue: SCREEN_HEIGHT * 0.9,
       useNativeDriver: false,
     }).start();
   };
@@ -242,8 +246,23 @@ export default function ManageCourses() {
 
       let updatedCourse;
       if (selectedCourse) {
-        // Update existing course
-        updatedCourse = await updateCourse(selectedCourse._id, formData);
+        // Update existing course - create a properly formatted update object to fix the type error
+        const selectedLecturer = lecturers.find(l => l._id === formData.lecturerId);
+        const courseUpdateData = {
+          courseCode: formData.courseCode,
+          courseName: formData.courseName,
+          description: formData.description,
+          schedules: formData.schedules,
+          // Only include lecturerId if we found the matching lecturer
+          ...(selectedLecturer ? { 
+            lecturerId: { 
+              _id: selectedLecturer._id,
+              firstName: selectedLecturer.firstName,
+              lastName: selectedLecturer.lastName
+            }
+          } : {})
+        };
+        updatedCourse = await updateCourse(selectedCourse._id, courseUpdateData);
         setSuccessMessage('Course updated successfully!');
       } else {
         // Create new course
@@ -400,25 +419,25 @@ export default function ManageCourses() {
           <View style={styles.courseActions}>
             <TouchableOpacity 
               key={generateUniqueKey('edit', course._id)}
-              style={[styles.courseActionButton, styles.editButton]}
+              style={[styles.courseActionButton, { backgroundColor: 'rgba(0, 0, 0, 0.6)' }]}
               onPress={() => handleEditCourse(course)}
             >
-              <Ionicons name="create-outline" size={24} color="#FFD700" />
+              <MaterialIcons name="edit" size={22} color="#FFD700" />
             </TouchableOpacity>
             <TouchableOpacity 
               key={generateUniqueKey('assign', course._id)}
-              style={[styles.courseActionButton, styles.assignButton]}
+              style={[styles.courseActionButton, { backgroundColor: 'rgba(0, 0, 0, 0.6)' }]}
               onPress={() => handleAssignStudents(course)}
             >
-              <Ionicons name="people-outline" size={24} color="#FFD700" />
+              <MaterialIcons name="groups" size={22} color="#FFD700" />
             </TouchableOpacity>
             <TouchableOpacity 
               key={generateUniqueKey('delete', course._id)}
-              style={[styles.courseActionButton, styles.deleteButton]}
+              style={[styles.courseActionButton, { backgroundColor: 'rgba(0, 0, 0, 0.6)' }]}
               onPress={() => handleDeletePress(course)}
               disabled={isDeleting}
             >
-              <Ionicons name="trash-outline" size={24} color="#FFD700" />
+              <MaterialIcons name="delete" size={22} color="#FFD700" />
             </TouchableOpacity>
           </View>
         </View>
@@ -430,7 +449,7 @@ export default function ManageCourses() {
             <Text style={styles.courseTitle} numberOfLines={1}>{course.courseName}</Text>
           </View>
           <View style={styles.instructorBadge}>
-            <Ionicons name="person" size={16} color="#666" />
+            <MaterialIcons name="person" size={16} color="#666" />
             <Text style={styles.instructorText}>
               {course.lecturerId ? `${course.lecturerId.firstName} ${course.lecturerId.lastName}` : 'Not assigned'}
             </Text>
@@ -444,11 +463,11 @@ export default function ManageCourses() {
               style={styles.scheduleCard}
             >
               <View style={styles.scheduleHeader}>
-                <Ionicons name="calendar" size={16} color="#002147" />
+                <MaterialIcons name="event" size={16} color="#1c3a70" />
                 <Text style={styles.scheduleDays}>{schedule.days.join(', ')}</Text>
               </View>
               <View style={styles.scheduleTime}>
-                <Ionicons name="time" size={16} color="#002147" />
+                <MaterialIcons name="access-time" size={16} color="#1c3a70" />
                 <Text style={styles.timeText}>{schedule.startTime} - {schedule.endTime}</Text>
               </View>
             </View>
@@ -458,27 +477,27 @@ export default function ManageCourses() {
     </View>
   );
 
-  const renderEmptyList = () => (
-    <View style={styles.emptyState}>
-      <Ionicons name="book-outline" size={48} color="#ccc" />
-      <Text style={styles.emptyStateText}>No courses found</Text>
-    </View>
-  );
-
   const renderListHeader = () => (
     <>
       <TouchableOpacity style={styles.addButton} onPress={handleAddCourse}>
-        <Ionicons name="add-circle" size={24} color="#fff" />
+        <MaterialIcons name="add-circle" size={24} color="#fff" />
         <Text style={styles.addButtonText}>Add Course</Text>
       </TouchableOpacity>
 
       {successMessage && (
         <View style={styles.successContainer}>
-          <Ionicons name="checkmark-circle" size={20} color="#4caf50" />
+          <MaterialIcons name="check-circle" size={20} color="#4caf50" />
           <Text style={styles.successText}>{successMessage}</Text>
         </View>
       )}
     </>
+  );
+
+  const renderEmptyList = () => (
+    <View style={styles.emptyState}>
+      <MaterialIcons name="menu-book" size={48} color="#ccc" />
+      <Text style={styles.emptyStateText}>No courses found</Text>
+    </View>
   );
 
   const renderDrawer = () => (
@@ -496,7 +515,7 @@ export default function ManageCourses() {
           {selectedCourse ? 'Edit Course' : 'Add New Course'}
         </Text>
         <TouchableOpacity onPress={closeDrawer} style={styles.closeButton}>
-          <Ionicons name="close" size={24} color="#002147" />
+          <MaterialIcons name="close" size={24} color="#002147" />
         </TouchableOpacity>
       </View>
 
@@ -507,13 +526,13 @@ export default function ManageCourses() {
       >
         <View style={styles.formSection}>
           <View style={styles.sectionHeader}>
-            <Ionicons name="book-outline" size={24} color="#1a73e8" />
+            <MaterialIcons name="book" size={24} color="#1a73e8" />
             <Text style={styles.sectionTitle}>Course Information</Text>
           </View>
           <View style={styles.inputContainer}>
             <Text style={styles.inputLabel}>Course Code</Text>
             <View style={styles.inputWrapper}>
-              <Ionicons name="code-outline" size={20} color="#666" style={styles.inputIcon} />
+              <MaterialIcons name="code" size={20} color="#666" style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
                 value={formData.courseCode}
@@ -527,7 +546,7 @@ export default function ManageCourses() {
           <View style={styles.inputContainer}>
             <Text style={styles.inputLabel}>Course Name</Text>
             <View style={styles.inputWrapper}>
-              <Ionicons name="school-outline" size={20} color="#666" style={styles.inputIcon} />
+              <MaterialIcons name="school" size={20} color="#666" style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
                 value={formData.courseName}
@@ -541,7 +560,7 @@ export default function ManageCourses() {
           <View style={styles.inputContainer}>
             <Text style={styles.inputLabel}>Description</Text>
             <View style={styles.inputWrapper}>
-              <Ionicons name="document-text-outline" size={20} color="#666" style={styles.inputIcon} />
+              <MaterialIcons name="description" size={20} color="#666" style={styles.inputIcon} />
               <TextInput
                 style={[styles.input, styles.textArea]}
                 value={formData.description}
@@ -557,7 +576,7 @@ export default function ManageCourses() {
 
         <View style={styles.formSection}>
           <View style={styles.sectionHeader}>
-            <Ionicons name="person-outline" size={24} color="#1a73e8" />
+            <MaterialIcons name="person" size={24} color="#1a73e8" />
             <Text style={styles.sectionTitle}>Lecturer</Text>
           </View>
           <TouchableOpacity
@@ -565,20 +584,20 @@ export default function ManageCourses() {
             onPress={() => setShowLecturerModal(true)}
           >
             <View style={styles.selectContent}>
-              <Ionicons name="person-circle-outline" size={20} color="#666" style={styles.inputIcon} />
+              <MaterialIcons name="person" size={20} color="#666" style={styles.inputIcon} />
               <Text style={styles.selectText}>
                 {formData.lecturerId
                   ? lecturers.find(l => l._id === formData.lecturerId)?.firstName + ' ' + lecturers.find(l => l._id === formData.lecturerId)?.lastName
                   : 'Select lecturer'}
               </Text>
-              <Ionicons name="chevron-down" size={20} color="#666" />
+              <MaterialIcons name="chevron-right" size={20} color="#666" />
             </View>
           </TouchableOpacity>
         </View>
 
         <View style={styles.formSection}>
           <View style={styles.sectionHeader}>
-            <Ionicons name="calendar-outline" size={24} color="#1a73e8" />
+            <MaterialIcons name="calendar-today" size={24} color="#1a73e8" />
             <Text style={styles.sectionTitle}>Schedule</Text>
           </View>
           <View style={styles.scheduleContainer}>
@@ -588,16 +607,16 @@ export default function ManageCourses() {
                 style={styles.scheduleItem}
               >
                 <View style={styles.scheduleInfo}>
-                  <Ionicons name="calendar" size={16} color="#1a73e8" />
+                  <MaterialIcons name="event" size={16} color="#1c3a70" />
                   <Text style={styles.scheduleText}>
                     {schedule.days.join(', ')} {schedule.startTime}-{schedule.endTime}
                   </Text>
                 </View>
                 <TouchableOpacity
-                  style={styles.removeButton}
+                  style={{ padding: 8 }}
                   onPress={() => handleRemoveSchedule(index)}
                 >
-                  <Ionicons name="close-circle" size={20} color="#ff4444" />
+                  <MaterialIcons name="cancel" size={20} color="#ff4444" />
                 </TouchableOpacity>
               </View>
             ))}
@@ -605,7 +624,7 @@ export default function ManageCourses() {
               style={styles.addScheduleButton}
               onPress={() => setShowScheduleModal(true)}
             >
-              <Ionicons name="add-circle-outline" size={20} color="#fff" style={styles.buttonIcon} />
+              <MaterialIcons name="add-circle-outline" size={20} color="#fff" style={styles.buttonIcon} />
               <Text style={styles.addScheduleButtonText}>Add Schedule</Text>
             </TouchableOpacity>
           </View>
@@ -616,7 +635,7 @@ export default function ManageCourses() {
             style={[styles.drawerButton, styles.cancelButton]}
             onPress={closeDrawer}
           >
-            <Ionicons name="close" size={20} color="#666" style={styles.buttonIcon} />
+            <MaterialIcons name="close" size={20} color="#666" style={styles.buttonIcon} />
             <Text style={styles.cancelButtonText}>Cancel</Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -628,7 +647,7 @@ export default function ManageCourses() {
               <ActivityIndicator color="#fff" />
             ) : (
               <>
-                <Ionicons name="checkmark" size={20} color="#fff" style={styles.buttonIcon} />
+                <MaterialIcons name="check" size={20} color="#fff" style={styles.buttonIcon} />
                 <Text style={styles.saveButtonText}>Save</Text>
               </>
             )}
@@ -651,7 +670,7 @@ export default function ManageCourses() {
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Select Lecturer</Text>
             <TouchableOpacity onPress={() => setShowLecturerModal(false)}>
-              <Ionicons name="close" size={24} color="#333" />
+              <MaterialIcons name="close" size={24} color="#333" />
             </TouchableOpacity>
           </View>
 
@@ -669,7 +688,7 @@ export default function ManageCourses() {
                 }}
               >
                 <View style={styles.lecturerInfo}>
-                  <Ionicons name="person-circle" size={24} color="#1a73e8" />
+                  <MaterialIcons name="person" size={24} color="#1c3a70" />
                   <View style={styles.lecturerDetails}>
                     <Text style={styles.lecturerName}>
                       {lecturer.firstName} {lecturer.lastName}
@@ -678,7 +697,7 @@ export default function ManageCourses() {
                   </View>
                 </View>
                 {formData.lecturerId === lecturer._id && (
-                  <Ionicons name="checkmark-circle" size={24} color="#1a73e8" />
+                  <MaterialIcons name="check-circle" size={24} color="#1c3a70" />
                 )}
               </TouchableOpacity>
             ))}
@@ -701,7 +720,7 @@ export default function ManageCourses() {
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Add Schedule</Text>
             <TouchableOpacity onPress={() => setShowScheduleModal(false)}>
-              <Ionicons name="close" size={24} color="#333" />
+              <MaterialIcons name="close" size={24} color="#333" />
             </TouchableOpacity>
           </View>
 
@@ -738,7 +757,7 @@ export default function ManageCourses() {
               <View style={styles.timeInput}>
                 <Text style={styles.inputLabel}>Start Time</Text>
                 <View style={styles.inputWrapper}>
-                  <Ionicons name="time-outline" size={20} color="#666" style={styles.inputIcon} />
+                  <MaterialIcons name="access-time" size={20} color="#666" style={styles.inputIcon} />
                   <TextInput
                     style={styles.input}
                     value={newSchedule.startTime}
@@ -753,13 +772,13 @@ export default function ManageCourses() {
                   />
                 </View>
                 {newSchedule.startTime && !validateTime(newSchedule.startTime) && (
-                  <Text style={styles.errorText}>Invalid time format</Text>
+                  <Text style={styles.ScheduleErrorText}>Invalid time format</Text>
                 )}
               </View>
               <View style={styles.timeInput}>
                 <Text style={styles.inputLabel}>End Time</Text>
                 <View style={styles.inputWrapper}>
-                  <Ionicons name="time-outline" size={20} color="#666" style={styles.inputIcon} />
+                  <MaterialIcons name="access-time" size={20} color="#666" style={styles.inputIcon} />
                   <TextInput
                     style={styles.input}
                     value={newSchedule.endTime}
@@ -774,7 +793,7 @@ export default function ManageCourses() {
                   />
                 </View>
                 {newSchedule.endTime && !validateTime(newSchedule.endTime) && (
-                  <Text style={styles.errorText}>Invalid time format</Text>
+                  <Text style={styles.ScheduleErrorText}>Invalid time format</Text>
                 )}
               </View>
             </View>
@@ -826,29 +845,40 @@ export default function ManageCourses() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.headerContent}>
-          <View style={styles.headerLeft}>
-            <TouchableOpacity onPress={handleBack} style={styles.backButton}>
-              <Ionicons name="arrow-back" size={32} color="#002147" />
-            </TouchableOpacity>
-            <Image
-              source={require('../assets/images/logo.png')}
-              style={styles.logoImage}
-              resizeMode="contain"
-            />
-            <View style={styles.headerTitleContainer}>
-              <Text style={[styles.headerTitle, styles.headerTitleChe]}>CHE</Text>
-              <Text style={[styles.headerTitle, styles.headerTitleQr]}>QR</Text>
+      <StatusBar 
+        barStyle="light-content" 
+        backgroundColor="#1c3a70"
+        translucent={true}
+      />
+      
+      <LinearGradient
+        colors={['#1c3a70', '#2c5282', '#3a6298']}
+        style={styles.headerGradient}>
+        <View style={styles.header}>
+          <View style={styles.headerContent}>
+            <View style={styles.headerLeft}>
+              <TouchableOpacity onPress={handleBack} style={styles.backButton}>
+                <MaterialIcons name="arrow-back" size={28} color="#fff" />
+              </TouchableOpacity>
+              <Image
+                source={require('../assets/images/logo.png')}
+                style={styles.logoImage}
+                resizeMode="contain"
+              />
+              <View style={styles.headerTitleContainer}>
+                <Text style={[styles.headerTitle, styles.headerTitleChe]}>CHE</Text>
+                <Text style={[styles.headerTitle, styles.headerTitleQr]}>QR</Text>
+              </View>
             </View>
           </View>
+          <Text style={styles.welcomeText}>Manage Courses</Text>
+          <Text style={styles.subtitleText}>Create, edit and organize academic courses</Text>
         </View>
-        <Text style={styles.welcomeText}>Manage Courses</Text>
-      </View>
+      </LinearGradient>
 
       <View style={styles.content}>
         {isLoading ? (
-          <ActivityIndicator size="large" color="#1a73e8" style={styles.loader} />
+          <ActivityIndicator size="large" color="#1c3a70" style={styles.loader} />
         ) : error ? (
           <View style={styles.errorContainer}>
             <Text style={styles.errorText}>{error}</Text>
@@ -878,7 +908,7 @@ export default function ManageCourses() {
             ListFooterComponent={() => (
               isLoadingMore ? (
                 <View style={styles.loadingMoreContainer}>
-                  <ActivityIndicator size="small" color="#1a73e8" />
+                  <ActivityIndicator size="small" color="#1c3a70" />
                   <Text style={styles.loadingMoreText}>Loading more courses...</Text>
                 </View>
               ) : null
@@ -908,7 +938,7 @@ export default function ManageCourses() {
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, styles.confirmModal]}>
             <View style={styles.confirmHeader}>
-              <Ionicons name="warning" size={48} color="#dc3545" />
+              <MaterialIcons name="warning" size={48} color="#dc3545" />
               <Text style={styles.confirmTitle}>Delete Course</Text>
             </View>
             
@@ -957,7 +987,7 @@ export default function ManageCourses() {
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, styles.confirmModal]}>
             <View style={styles.confirmHeader}>
-              <Ionicons name="warning" size={48} color="#1a73e8" />
+              <MaterialIcons name="warning" size={48} color="#1a73e8" />
               <Text style={styles.confirmTitle}>Confirm Edit</Text>
             </View>
             
@@ -1003,20 +1033,19 @@ export default function ManageCourses() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#f5f7fa',
+  },
+  headerGradient: {
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 24) - 25 : 0,
   },
   header: {
-    backgroundColor: 'transparent',
-    padding: 20,
-    paddingTop: 20,
-    borderBottomLeftRadius: 0,
-    borderBottomRightRadius: 0,
+    padding: 16,
   },
   headerContent: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 10,
+    marginBottom: 8,
   },
   headerLeft: {
     flexDirection: 'row',
@@ -1024,51 +1053,60 @@ const styles = StyleSheet.create({
   },
   backButton: {
     marginRight: 10,
+    padding: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    borderRadius: 12,
   },
   logoImage: {
-    width: 50,
-    height: 50,
-    marginRight: 10,
+    width: 38,
+    height: 38,
+    marginRight: 8,
   },
   headerTitleContainer: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 75,
-    marginTop: 10,
-    lineHeight: 75,
+    fontSize: 40,
+    lineHeight: 40,
     includeFontPadding: false,
     textAlignVertical: 'center',
+    fontFamily: 'THEDISPLAYFONT',
   },
   headerTitleChe: {
-    color: '#002147',
-    fontFamily: 'THEDISPLAYFONT',
+    color: '#fff',
   },
   headerTitleQr: {
     color: '#FFD700',
-    fontFamily: 'THEDISPLAYFONT',
   },
   welcomeText: {
-    fontSize: 18,
-    color: '#002147',
-    opacity: 0.9,
+    fontSize: 22,
+    color: '#fff',
     fontWeight: 'bold',
+    marginBottom: 2,
+  },
+  subtitleText: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.85)',
+    marginBottom: 5,
   },
   content: {
     flex: 1,
     padding: 20,
   },
+  courseList: {
+    paddingBottom: 20,
+  },
   addButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#1a73e8',
+    backgroundColor: '#1c3a70',
     padding: 16,
     borderRadius: 16,
     marginBottom: 24,
     elevation: 4,
-    shadowColor: '#1a73e8',
+    shadowColor: '#1c3a70',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
     shadowRadius: 8,
@@ -1079,13 +1117,9 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginLeft: 10,
   },
-  courseList: {
-    paddingBottom: 20,
-    minHeight: '100%',
-  },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(23, 43, 77, 0.7)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1109,7 +1143,7 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#1a73e8',
+    color: '#1c3a70',
     flex: 1,
     textAlign: 'center',
   },
@@ -1159,12 +1193,12 @@ const styles = StyleSheet.create({
   cancelButton: {
     backgroundColor: '#f8f9fa',
     borderWidth: 1,
-    borderColor: '#e9ecef',
+    borderColor: '#e7eaf0',
   },
   saveButton: {
-    backgroundColor: '#1a73e8',
+    backgroundColor: '#1c3a70',
     elevation: 4,
-    shadowColor: '#1a73e8',
+    shadowColor: '#1c3a70',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
     shadowRadius: 8,
@@ -1196,7 +1230,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8f9fa',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#e9ecef',
+    borderColor: '#e7eaf0',
     marginBottom: 20,
   },
   selectContent: {
@@ -1221,7 +1255,7 @@ const styles = StyleSheet.create({
     padding: 14,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#e9ecef',
+    borderColor: '#e7eaf0',
   },
   scheduleInfo: {
     flexDirection: 'row',
@@ -1237,7 +1271,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#1a73e8',
+    backgroundColor: '#1c3a70',
     padding: 12,
     borderRadius: 12,
     marginTop: 8,
@@ -1304,11 +1338,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#e9ecef',
+    borderColor: '#e7eaf0',
   },
   selectedDay: {
-    backgroundColor: '#1a73e8',
-    borderColor: '#1a73e8',
+    backgroundColor: '#1c3a70',
+    borderColor: '#1c3a70',
   },
   dayButtonText: {
     fontSize: 15,
@@ -1324,7 +1358,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'transparent',
+    backgroundColor: 'rgba(23, 43, 77, 0.7)',
   },
   drawerBackdrop: {
     position: 'absolute',
@@ -1332,7 +1366,6 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
   drawer: {
     position: 'absolute',
@@ -1354,7 +1387,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#e9ecef',
+    borderBottomColor: '#e7eaf0',
   },
   drawerHandle: {
     position: 'absolute',
@@ -1367,7 +1400,7 @@ const styles = StyleSheet.create({
   drawerTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#002147',
+    color: '#1c3a70',
   },
   closeButton: {
     position: 'absolute',
@@ -1390,34 +1423,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginHorizontal: 6,
   },
-  saveButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  saveButton: {
-    backgroundColor: '#1a73e8',
-    elevation: 4,
-    shadowColor: '#1a73e8',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-  },
-  cancelButtonText: {
-    color: '#666',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  saveConfirmText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  saveConfirmButton: {
-    backgroundColor: '#1a73e8',
-  },
-  cancelConfirmButton: {
-    backgroundColor: '#f8f9fa',
+  buttonIcon: {
+    marginRight: 8,
   },
   confirmModal: {
     padding: 20,
@@ -1431,7 +1438,7 @@ const styles = StyleSheet.create({
   confirmTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#1a73e8',
+    color: '#1c3a70',
   },
   confirmText: {
     color: '#333',
@@ -1460,8 +1467,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
-  cancelConfirmText: {
-    color: '#666',
+  saveConfirmButton: {
+    backgroundColor: '#1c3a70',
+  },
+  saveConfirmText: {
+    color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
   },
@@ -1476,44 +1486,15 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 17,
     fontWeight: 'bold',
-    color: '#1a73e8',
+    color: '#1c3a70',
     marginLeft: 10,
-  },
-  buttonIcon: {
-    marginRight: 8,
-  },
-  errorText: {
-    color: '#dc3545',
-    fontSize: 12,
-    marginTop: 4,
   },
   disabledButton: {
     opacity: 0.5,
   },
-  timeInput: {
-    flex: 1,
-  },
-  inputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f8f9fa',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#e9ecef',
-    paddingHorizontal: 12,
-  },
-  inputIcon: {
-    marginRight: 8,
-  },
-  input: {
-    flex: 1,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: '#333',
-  },
   courseCard: {
     backgroundColor: '#fff',
-    borderRadius: 12,
+    borderRadius: 16,
     marginBottom: 16,
     overflow: 'hidden',
     elevation: 2,
@@ -1521,6 +1502,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(80, 102, 144, 0.1)',
   },
   courseImageContainer: {
     height: 100,
@@ -1546,14 +1529,13 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.2)',
   },
   courseContent: {
-    padding: 12,
+    padding: 16,
   },
   courseHeader: {
     marginBottom: 10,
@@ -1563,30 +1545,30 @@ const styles = StyleSheet.create({
   },
   courseCode: {
     fontSize: 13,
-    color: '#1a73e8',
+    color: '#1c3a70',
     marginBottom: 4,
     fontWeight: '600',
   },
   courseTitle: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#002147',
+    color: '#1c3a70',
     lineHeight: 20,
   },
   instructorBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f0f7ff',
+    backgroundColor: 'rgba(28, 58, 112, 0.1)',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
     alignSelf: 'flex-start',
     borderWidth: 1,
-    borderColor: '#e3f2fd',
+    borderColor: 'rgba(28, 58, 112, 0.2)',
   },
   instructorText: {
     fontSize: 12,
-    color: '#1a73e8',
+    color: '#1c3a70',
     marginLeft: 4,
     fontWeight: '500',
   },
@@ -1598,7 +1580,7 @@ const styles = StyleSheet.create({
     padding: 8,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#e9ecef',
+    borderColor: '#e7eaf0',
   },
   scheduleHeader: {
     flexDirection: 'row',
@@ -1607,7 +1589,7 @@ const styles = StyleSheet.create({
   },
   scheduleDays: {
     fontSize: 13,
-    color: '#002147',
+    color: '#1c3a70',
     marginLeft: 6,
     fontWeight: '600',
   },
@@ -1617,13 +1599,13 @@ const styles = StyleSheet.create({
   },
   timeText: {
     fontSize: 13,
-    color: '#002147',
+    color: '#1c3a70',
     marginLeft: 6,
     fontWeight: '500',
   },
   highlightedCard: {
     borderWidth: 2,
-    borderColor: '#1a73e8',
+    borderColor: '#1c3a70',
     transform: [{ scale: 1.02 }],
   },
   successContainer: {
@@ -1670,5 +1652,18 @@ const styles = StyleSheet.create({
     color: '#666',
     fontSize: 14,
     fontWeight: '500',
+  },
+  cancelConfirmButton: {
+    backgroundColor: '#f8f9fa',
+  },
+  cancelConfirmText: {
+    color: '#506690',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  ScheduleErrorText: {
+    color: '#dc3545',
+    fontSize: 12,
+    marginTop: 4,
   },
 }); 

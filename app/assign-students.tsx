@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, ActivityIndicator, Animated, Dimensions, FlatList } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, ActivityIndicator, Animated, Dimensions, FlatList, StatusBar, Platform } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { MaterialIcons } from '@expo/vector-icons';
 import { User, Course, getUsers, updateCourse, getCourses } from '../lib/api';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const ITEMS_PER_PAGE = 50;
 const WINDOW_HEIGHT = Dimensions.get('window').height;
+const SCREEN_HEIGHT = Dimensions.get('window').height;
+const SCREEN_WIDTH = Dimensions.get('window').width;
 
 export default function AssignStudents() {
   const params = useLocalSearchParams();
@@ -154,7 +157,7 @@ export default function AssignStudents() {
         <View style={styles.studentHeader}>
           <Text style={styles.studentId}>{student.idNumber}</Text>
           {activeTab === 'enrolled' ? (
-            <Ionicons name="checkmark-circle" size={20} color="#4caf50" />
+            <MaterialIcons name="check-circle" size={20} color="#4caf50" />
           ) : null}
         </View>
         <Text style={[
@@ -177,8 +180,8 @@ export default function AssignStudents() {
           }
         }}
       >
-        <Ionicons 
-          name={activeTab === 'enrolled' ? 'remove' : 'add'} 
+        <MaterialIcons 
+          name={activeTab === 'enrolled' ? 'remove-circle' : 'add-circle'} 
           size={24} 
           color="#fff" 
         />
@@ -188,8 +191,8 @@ export default function AssignStudents() {
 
   const renderEmptyState = useCallback(() => (
     <View style={styles.emptyState}>
-      <Ionicons 
-        name={activeTab === 'enrolled' ? 'people' : 'person-add'} 
+      <MaterialIcons 
+        name={activeTab === 'enrolled' ? 'groups' : 'person-add'} 
         size={48} 
         color="#ccc" 
       />
@@ -218,28 +221,52 @@ export default function AssignStudents() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="#002147" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Assign Students</Text>
-          <TouchableOpacity
-            style={[styles.saveButton, isLoading && styles.saveButtonDisabled]}
-            onPress={handleSaveAssignments}
-            disabled={isLoading}
-          >
-            {isLoading ? (
-              <ActivityIndicator color="#fff" size="small" />
-            ) : (
-              <>
-                <Ionicons name="checkmark" size={20} color="#fff" style={styles.buttonIcon} />
-                <Text style={styles.saveButtonText}>Save</Text>
-              </>
-            )}
-          </TouchableOpacity>
+      <StatusBar 
+        barStyle="light-content" 
+        backgroundColor="#1c3a70"
+        translucent={true}
+      />
+      
+      <LinearGradient
+        colors={['#1c3a70', '#2c5282', '#3a6298']}
+        style={styles.headerGradient}>
+        <View style={styles.header}>
+          <View style={styles.headerContent}>
+            <View style={styles.headerLeft}>
+              <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+                <MaterialIcons name="arrow-back" size={28} color="#fff" />
+              </TouchableOpacity>
+              <Text style={styles.headerTitle}>Assign Students</Text>
+            </View>
+            <TouchableOpacity
+              style={[styles.saveButton, isLoading && styles.saveButtonDisabled]}
+              onPress={handleSaveAssignments}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <>
+                  <MaterialIcons name="check" size={20} color="#fff" style={styles.buttonIcon} />
+                  <Text style={styles.saveButtonText}>Save</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+          
+          {currentCourse && (
+            <View style={styles.courseInfo}>
+              <View style={styles.courseHeader}>
+                <MaterialIcons name="menu-book" size={22} color="#fff" />
+                <Text style={styles.courseTitle}>
+                  {currentCourse.courseName}
+                </Text>
+              </View>
+              <Text style={styles.courseCode}>{currentCourse.courseCode}</Text>
+            </View>
+          )}
         </View>
-      </View>
+      </LinearGradient>
 
       <Animated.View 
         style={[
@@ -250,28 +277,16 @@ export default function AssignStudents() {
           }
         ]}
       >
-        {currentCourse && (
-          <View style={styles.courseInfo}>
-            <View style={styles.courseHeader}>
-              <Ionicons name="book" size={24} color="#1a73e8" />
-              <Text style={styles.courseTitle}>
-                {currentCourse.courseName}
-              </Text>
-            </View>
-            <Text style={styles.courseCode}>{currentCourse.courseCode}</Text>
-          </View>
-        )}
-
         {successMessage && (
           <View style={styles.successContainer}>
-            <Ionicons name="checkmark-circle" size={20} color="#4caf50" />
+            <MaterialIcons name="check-circle" size={20} color="#4caf50" />
             <Text style={styles.successText}>{successMessage}</Text>
           </View>
         )}
 
         <View style={styles.searchContainer}>
           <View style={styles.searchInputContainer}>
-            <Ionicons name="search" size={20} color="#666" style={styles.searchIcon} />
+            <MaterialIcons name="search" size={20} color="#666" style={styles.searchIcon} />
             <TextInput
               style={styles.searchInput}
               placeholder="Search by name or ID number..."
@@ -284,7 +299,7 @@ export default function AssignStudents() {
                 onPress={() => setSearchQuery('')}
                 style={styles.clearButton}
               >
-                <Ionicons name="close-circle" size={20} color="#666" />
+                <MaterialIcons name="cancel" size={20} color="#666" />
               </TouchableOpacity>
             ) : null}
           </View>
@@ -298,8 +313,8 @@ export default function AssignStudents() {
             ]}
             onPress={() => setActiveTab('enrolled')}
           >
-            <Ionicons 
-              name="people" 
+            <MaterialIcons 
+              name="groups" 
               size={20} 
               color={activeTab === 'enrolled' ? '#fff' : '#666'} 
               style={styles.tabIcon}
@@ -318,7 +333,7 @@ export default function AssignStudents() {
             ]}
             onPress={() => setActiveTab('available')}
           >
-            <Ionicons 
+            <MaterialIcons 
               name="person-add" 
               size={20} 
               color={activeTab === 'available' ? '#fff' : '#666'} 
@@ -357,46 +372,42 @@ export default function AssignStudents() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#f5f7fa',
+  },
+  headerGradient: {
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 24) - 25 : 0,
   },
   header: {
-    backgroundColor: '#fff',
-    paddingTop: 20,
-    paddingBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e9ecef',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    padding: 16,
   },
   headerContent: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
+    marginBottom: 8,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   backButton: {
+    marginRight: 10,
     padding: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    borderRadius: 12,
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: 'bold',
-    color: '#002147',
+    color: '#fff',
   },
   saveButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1a73e8',
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
-    elevation: 2,
-    shadowColor: '#1a73e8',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
   },
   saveButtonDisabled: {
     opacity: 0.7,
@@ -414,31 +425,24 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   courseInfo: {
-    backgroundColor: '#fff',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 20,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    marginTop: 8,
+    
   },
   courseHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 4,
   },
   courseTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#002147',
-    marginLeft: 12,
+    color: '#fff',
+    marginLeft: 8,
   },
   courseCode: {
     fontSize: 14,
-    color: '#666',
-    marginLeft: 36,
+    color: 'rgba(255, 255, 255, 0.8)',
+    marginLeft: 30,
   },
   searchContainer: {
     marginBottom: 20,
@@ -449,12 +453,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 12,
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 5,
     elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(80, 102, 144, 0.1)',
   },
   searchIcon: {
     marginRight: 12,
@@ -478,6 +484,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(80, 102, 144, 0.1)',
   },
   tabButton: {
     flex: 1,
@@ -488,7 +496,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   activeTabButton: {
-    backgroundColor: '#1a73e8',
+    backgroundColor: '#1c3a70',
   },
   tabIcon: {
     marginRight: 8,
@@ -517,11 +525,12 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(80, 102, 144, 0.1)',
   },
   selectedStudent: {
-    backgroundColor: '#e8f0fe',
     borderWidth: 1,
-    borderColor: '#1a73e8',
+    borderColor: 'rgba(28, 58, 112, 0.2)',
   },
   studentInfo: {
     flex: 1,
@@ -533,16 +542,17 @@ const styles = StyleSheet.create({
   },
   studentId: {
     fontSize: 14,
-    color: '#666',
+    color: '#506690',
     marginRight: 8,
   },
   studentName: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#002147',
+    color: '#1c3a70',
   },
   selectedStudentText: {
-    color: '#1a73e8',
+    color: '#1c3a70',
+    fontWeight: '700',
   },
   actionButton: {
     width: 40,
@@ -553,7 +563,7 @@ const styles = StyleSheet.create({
     marginLeft: 12,
   },
   addButton: {
-    backgroundColor: '#4caf50',
+    backgroundColor: '#2D5F2D',
   },
   removeButton: {
     backgroundColor: '#dc3545',
@@ -565,7 +575,7 @@ const styles = StyleSheet.create({
     padding: 40,
   },
   emptyStateText: {
-    color: '#666',
+    color: '#506690',
     fontSize: 16,
     fontWeight: '500',
     marginTop: 12,

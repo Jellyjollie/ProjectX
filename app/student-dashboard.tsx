@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, ActivityIndicator, Modal, BackHandler, Alert, Animated, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, ActivityIndicator, Modal, BackHandler, Alert, Animated, Dimensions, RefreshControl, StatusBar, Platform, FlatList } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { MaterialIcons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import { Course, getCourses, logoutUser } from '../lib/api';
@@ -12,6 +12,12 @@ import { API_CONFIG } from '../config';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 SplashScreen.preventAutoHideAsync();
+
+const SCREEN_WIDTH = Dimensions.get('window').width;
+
+const getNumColumns = () => {
+  return SCREEN_WIDTH >= 768 ? 2 : 1; // Use 2 columns for tablets/wider screens
+};
 
 export default function StudentDashboard() {
   const params = useLocalSearchParams();
@@ -35,6 +41,7 @@ export default function StudentDashboard() {
   const scanLineAnim = useRef(new Animated.Value(0)).current;
   const { width: screenWidth } = Dimensions.get('window');
   const [currentScanningCourse, setCurrentScanningCourse] = useState<Course | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     fetchEnrolledCourses();
@@ -72,15 +79,14 @@ export default function StudentDashboard() {
       setIsLoading(true);
       const allCourses = await getCourses();
       console.log('Current Student ID:', currentUserId);
-      console.log('All Courses:', allCourses);
       
       const enrolledCourses = allCourses.filter((course: Course) => {
-        console.log('Course Students:', course.students);
         return course.students && course.students.includes(currentUserId);
       });
       
       console.log('Enrolled Courses:', enrolledCourses);
       setCourses(enrolledCourses);
+      setError(null);
     } catch (error) {
       console.error('Error fetching enrolled courses:', error);
       setError('Failed to fetch courses. Please try again.');
@@ -216,18 +222,23 @@ export default function StudentDashboard() {
   };
 
   const startScanAnimation = () => {
+    // Reset animation to the starting position
+    scanLineAnim.setValue(0);
+    
     Animated.loop(
       Animated.sequence([
+        // Move from top to bottom
         Animated.timing(scanLineAnim, {
           toValue: 1,
           duration: 2000,
           useNativeDriver: true,
         }),
+        // Move from bottom to top
         Animated.timing(scanLineAnim, {
           toValue: 0,
           duration: 2000,
           useNativeDriver: true,
-        }),
+        })
       ])
     ).start();
   };
@@ -282,6 +293,12 @@ export default function StudentDashboard() {
     }
   };
 
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await fetchEnrolledCourses();
+    setRefreshing(false);
+  };
+
   if (!fontsLoaded && !fontError) {
     return null;
   }
@@ -299,7 +316,7 @@ export default function StudentDashboard() {
               style={styles.courseActionButton}
               onPress={() => handleScanPress(course)}
             >
-              <Ionicons name="scan-outline" size={24} color="#FFD700" />
+              <MaterialIcons name="qr-code-scanner" size={24} color="#FFD700" />
             </TouchableOpacity>
           </View>
         </View>
@@ -310,7 +327,7 @@ export default function StudentDashboard() {
               <Text style={styles.courseTitle} numberOfLines={1}>{course.courseName}</Text>
             </View>
             <View style={styles.instructorBadge}>
-              <Ionicons name="person" size={16} color="#666" />
+              <MaterialIcons name="person" size={16} color="#666" />
               <Text style={styles.instructorText}>
                 {course.lecturerId ? `${course.lecturerId.firstName} ${course.lecturerId.lastName}` : 'Not assigned'}
               </Text>
@@ -321,11 +338,11 @@ export default function StudentDashboard() {
             {course.schedules.map((schedule, index) => (
               <View key={index} style={styles.scheduleCard}>
                 <View style={styles.scheduleHeader}>
-                  <Ionicons name="calendar" size={16} color="#002147" />
+                  <MaterialIcons name="calendar-today" size={16} color="#1c3a70" />
                   <Text style={styles.scheduleDays}>{schedule.days.join(', ')}</Text>
                 </View>
                 <View style={styles.scheduleTime}>
-                  <Ionicons name="time" size={16} color="#002147" />
+                  <MaterialIcons name="schedule" size={16} color="#1c3a70" />
                   <Text style={styles.timeText}>{schedule.startTime} - {schedule.endTime}</Text>
                 </View>
               </View>
@@ -338,49 +355,97 @@ export default function StudentDashboard() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.headerContent}>
-          <View style={styles.headerLeft}>
-            <Image
-              source={require('../assets/images/logo.png')}
-              style={styles.logoImage}
-              resizeMode="contain"
-            />
-            <View style={styles.headerTitleContainer}>
-              <Text style={[styles.headerTitle, styles.headerTitleChe]}>CHE</Text>
-              <Text style={[styles.headerTitle, styles.headerTitleQr]}>QR</Text>
+      <StatusBar 
+        barStyle="light-content" 
+        backgroundColor="#1c3a70"
+        translucent={true}
+      />
+      
+      <LinearGradient
+        colors={['#1c3a70', '#2c5282', '#3a6298']}
+        style={styles.headerGradient}>
+        <View style={styles.header}>
+          <View style={styles.headerContent}>
+            <View style={styles.headerLeft}>
+              <Image
+                source={require('../assets/images/logo.png')}
+                style={styles.logoImage}
+                resizeMode="contain"
+              />
+              <View style={styles.headerTitleContainer}>
+                <Text style={[styles.headerTitle, styles.headerTitleChe]}>CHE</Text>
+                <Text style={[styles.headerTitle, styles.headerTitleQr]}>QR</Text>
+              </View>
+            </View>
+            <View style={styles.headerActions}>
+              <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
+                <MaterialIcons name="logout" size={28} color="#fff" />
+              </TouchableOpacity>
             </View>
           </View>
-          <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
-            <Ionicons name="log-out-outline" size={32} color="#002147" />
-          </TouchableOpacity>
+          <Text style={styles.welcomeText}>Student Dashboard</Text>
+          <Text style={styles.subtitleText}>Scan QR codes to mark your attendance</Text>
         </View>
-        <Text style={styles.welcomeText}>Student Dashboard</Text>
-      </View>
+      </LinearGradient>
 
-      <ScrollView style={styles.content}>
-        {isLoading ? (
-          <ActivityIndicator size="large" color="#1a73e8" style={styles.loader} />
+      <View style={styles.contentContainer}>
+        {isLoading && !refreshing ? (
+          <ActivityIndicator size="large" color="#1c3a70" style={styles.loader} />
         ) : error ? (
           <View style={styles.errorContainer}>
             <Text style={styles.errorText}>{error}</Text>
           </View>
         ) : courses.length === 0 ? (
           <View style={styles.emptyState}>
-            <Ionicons name="book-outline" size={48} color="#ccc" />
+            <MaterialIcons name="book" size={48} color="#ccc" />
             <Text style={styles.emptyStateText}>No enrolled courses found</Text>
           </View>
         ) : (
-          courses.map((course) => (
-            <CourseCard key={course._id} course={course} />
-          ))
+          <FlatList
+            data={courses}
+            key={getNumColumns().toString()}
+            keyExtractor={(item) => item._id}
+            renderItem={({ item }) => <CourseCard key={item._id} course={item} />}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.courseList}
+            initialNumToRender={8}
+            maxToRenderPerBatch={10}
+            windowSize={5}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                colors={["#1c3a70"]}
+                tintColor="#1c3a70"
+              />
+            }
+            numColumns={getNumColumns()}
+            columnWrapperStyle={getNumColumns() > 1 ? styles.gridRow : undefined}
+            ListHeaderComponent={() => (
+              <View style={styles.listHeader}>
+                <Text style={styles.listHeaderText}>Your Courses ({courses.length})</Text>
+              </View>
+            )}
+            ListFooterComponent={() => <View style={styles.listFooter} />}
+          />
         )}
-      </ScrollView>
+      </View>
 
-      {isScannerVisible && (
-        <View style={styles.scannerOverlayContainer}>
+      {/* QR Scanner Modal */}
+      <Modal
+        visible={isScannerVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {
+          setScannerVisible(false);
+          setScanned(false);
+        }}
+        statusBarTranslucent={true}
+      >
+        <View style={styles.scannerModalContainer}>
+          <View style={styles.scannerBackdrop} />
           <LinearGradient
-            colors={['#002147', '#001a3d']}
+            colors={['rgba(28, 58, 112, 100)', 'rgba(44, 82, 130, 100)', 'rgba(58, 98, 152, 100)']}
             style={styles.scannerGradient}
           >
             <View style={styles.scannerHeader}>
@@ -391,10 +456,10 @@ export default function StudentDashboard() {
                   setScanned(false);
                 }}
               >
-                <Ionicons name="arrow-back" size={24} color="#fff" />
+                <MaterialIcons name="arrow-back" size={24} color="#fff" />
               </TouchableOpacity>
               <Text style={styles.scannerTitle}>Scan QR Code</Text>
-              <View style={styles.closeScannerButton} />
+              <View style={{ width: 40 }} />
             </View>
             
             <View style={styles.scannerContent}>
@@ -416,7 +481,7 @@ export default function StudentDashboard() {
                           {
                             translateY: scanLineAnim.interpolate({
                               inputRange: [0, 1],
-                              outputRange: [0, 280],
+                              outputRange: [10, Dimensions.get('window').width * 0.7],
                             }),
                           },
                         ],
@@ -428,7 +493,7 @@ export default function StudentDashboard() {
 
               <View style={styles.scannerGuide}>
                 <View style={styles.guideIcon}>
-                  <Ionicons name="scan-outline" size={24} color="#FFD700" />
+                  <MaterialIcons name="qr-code-scanner" size={24} color="#FFD700" />
                 </View>
                 <Text style={styles.scanText}>
                   Position QR code within the frame
@@ -442,12 +507,12 @@ export default function StudentDashboard() {
                   style={styles.scanAgainButton}
                   onPress={() => setScanned(false)}
                 >
-                  <Ionicons name="refresh" size={20} color="#002147" />
+                  <MaterialIcons name="refresh" size={20} color="#1c3a70" />
                   <Text style={styles.scanAgainText}>Scan Again</Text>
                 </TouchableOpacity>
               ) : (
                 <View style={styles.scannerHint}>
-                  <Ionicons name="information-circle-outline" size={20} color="#fff" />
+                  <MaterialIcons name="info" size={20} color="#fff" />
                   <Text style={styles.hintText}>
                     Make sure the QR code is well lit and clearly visible
                   </Text>
@@ -456,7 +521,7 @@ export default function StudentDashboard() {
             </View>
           </LinearGradient>
         </View>
-      )}
+      </Modal>
 
       {/* Success Modal */}
       <Modal
@@ -468,7 +533,7 @@ export default function StudentDashboard() {
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, styles.successModal]}>
             <View style={styles.successIconContainer}>
-              <Ionicons name="checkmark-circle" size={64} color="#4CAF50" />
+              <MaterialIcons name="check-circle" size={64} color="#4CAF50" />
             </View>
             <Text style={styles.successTitle}>Success!</Text>
             <Text style={styles.successText}>Attendance marked successfully</Text>
@@ -486,7 +551,7 @@ export default function StudentDashboard() {
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, styles.errorModal]}>
             <View style={styles.errorIconContainer}>
-              <Ionicons name="alert-circle" size={64} color="#D32F2F" />
+              <MaterialIcons name="error" size={64} color="#D32F2F" />
             </View>
             <Text style={styles.errorTitle}>Error</Text>
             <Text style={styles.errorMessageText}>{errorMessage}</Text>
@@ -510,7 +575,7 @@ export default function StudentDashboard() {
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, styles.confirmModal]}>
             <View style={styles.confirmHeader}>
-              <Ionicons name="log-out-outline" size={48} color="#002147" />
+              <MaterialIcons name="logout" size={48} color="#1c3a70" />
               <Text style={styles.confirmTitle}>Confirm Logout</Text>
             </View>
             
@@ -542,62 +607,71 @@ export default function StudentDashboard() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#f5f7fa',
+  },
+  headerGradient: {
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 24) - 25 : 0,
   },
   header: {
-    backgroundColor: 'transparent',
-    padding: 20,
-    paddingTop: 20,
-    borderBottomLeftRadius: 0,
-    borderBottomRightRadius: 0,
+    padding: 16,
   },
   headerContent: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 10,
+    marginBottom: 8,
   },
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   logoImage: {
-    width: 50,
-    height: 50,
-    marginRight: 10,
+    width: 38,
+    height: 38,
+    marginRight: 8,
   },
   headerTitleContainer: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 75,
-    marginTop: 10,
-    lineHeight: 75,
+    fontSize: 40,
+    lineHeight: 40,
     includeFontPadding: false,
     textAlignVertical: 'center',
+    fontFamily: 'THEDISPLAYFONT',
   },
   headerTitleChe: {
-    color: '#002147',
-    fontFamily: 'THEDISPLAYFONT',
+    color: '#fff',
   },
   headerTitleQr: {
     color: '#FFD700',
-    fontFamily: 'THEDISPLAYFONT',
   },
   welcomeText: {
-    fontSize: 18,
-    color: '#002147',
-    opacity: 0.9,
+    fontSize: 22,
+    color: '#fff',
     fontWeight: 'bold',
+    marginBottom: 2,
+  },
+  subtitleText: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.85)',
+    marginBottom: 5,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
   },
   logoutButton: {
     padding: 8,
-    marginLeft: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    borderRadius: 12,
   },
-  content: {
+  contentContainer: {
     flex: 1,
-    padding: 20,
+    padding: 16,
+    backgroundColor: '#f5f7fa',
   },
   loader: {
     marginTop: 20,
@@ -615,8 +689,8 @@ const styles = StyleSheet.create({
   emptyState: {
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 20,
-    marginTop: 20,
+    padding: 32,
+    marginTop: 24,
   },
   emptyStateText: {
     fontSize: 16,
@@ -626,13 +700,15 @@ const styles = StyleSheet.create({
   courseCard: {
     backgroundColor: '#fff',
     borderRadius: 16,
-    marginBottom: 12,
+    marginBottom: 16,
     overflow: 'hidden',
     elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(80, 102, 144, 0.1)',
   },
   courseImageContainer: {
     height: 80,
@@ -646,7 +722,7 @@ const styles = StyleSheet.create({
   },
   courseOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 33, 71, 0.7)',
+    backgroundColor: 'rgba(28, 58, 112, 0.7)',
     justifyContent: 'flex-end',
     padding: 12,
   },
@@ -677,13 +753,13 @@ const styles = StyleSheet.create({
   courseCode: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#002147',
+    color: '#1c3a70',
     marginBottom: 2,
   },
   courseTitle: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#1a73e8',
+    color: '#1c3a70',
     lineHeight: 20,
   },
   instructorBadge: {
@@ -717,7 +793,7 @@ const styles = StyleSheet.create({
   scheduleDays: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#002147',
+    color: '#1c3a70',
   },
   scheduleTime: {
     flexDirection: 'row',
@@ -730,16 +806,21 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(23, 43, 77, 0.7)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   modalContent: {
     backgroundColor: '#fff',
     borderRadius: 20,
-    padding: 25,
+    padding: 24,
     width: '90%',
     maxWidth: 400,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
   },
   confirmModal: {
     width: '90%',
@@ -753,12 +834,12 @@ const styles = StyleSheet.create({
   confirmTitle: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#002147',
+    color: '#1c3a70',
     marginTop: 8,
   },
   confirmText: {
     fontSize: 16,
-    color: '#666',
+    color: '#506690',
     textAlign: 'center',
     lineHeight: 24,
     marginBottom: 24,
@@ -780,7 +861,7 @@ const styles = StyleSheet.create({
     borderColor: '#ddd',
   },
   logoutConfirmButton: {
-    backgroundColor: '#002147',
+    backgroundColor: '#1c3a70',
   },
   cancelConfirmText: {
     color: '#666',
@@ -792,35 +873,38 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  scannerOverlayContainer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 1000,
+  scannerModalContainer: {
+    flex: 1,
+    position: 'relative',
+  },
+  scannerBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
   },
   scannerGradient: {
     flex: 1,
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    marginTop: Platform.OS === 'android' ? 60 : 80,
+    overflow: 'hidden',
   },
   scannerHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 20,
-    paddingTop: 60,
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 24) + 20 : 60,
   },
   scannerTitle: {
     fontSize: 24,
     fontWeight: 'bold',
     color: '#fff',
-    fontFamily: 'THEDISPLAYFONT',
   },
   closeScannerButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -863,10 +947,11 @@ const styles = StyleSheet.create({
   },
   scanLine: {
     position: 'absolute',
-    width: '100%',
+    width: '90%',
     height: 2,
     backgroundColor: '#FFD700',
     opacity: 0.8,
+    top: 10, // Start from the top with a small offset
   },
   topLeft: {
     top: 20,
@@ -913,6 +998,7 @@ const styles = StyleSheet.create({
   },
   scannerFooter: {
     padding: 20,
+    paddingBottom: 40,
     alignItems: 'center',
   },
   scanAgainButton: {
@@ -925,7 +1011,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   scanAgainText: {
-    color: '#002147',
+    color: '#1c3a70',
     fontSize: 16,
     fontWeight: '600',
   },
@@ -934,13 +1020,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
     padding: 12,
-    borderRadius: 8,
+    borderRadius: 12,
     gap: 8,
+    maxWidth: '80%',
   },
   hintText: {
     color: '#fff',
     fontSize: 14,
-    opacity: 0.8,
+    opacity: 0.9,
     flex: 1,
   },
   successModal: {
@@ -968,7 +1055,7 @@ const styles = StyleSheet.create({
   },
   successText: {
     fontSize: 16,
-    color: '#666',
+    color: '#506690',
     textAlign: 'center',
   },
   errorModal: {
@@ -996,7 +1083,7 @@ const styles = StyleSheet.create({
   },
   errorMessageText: {
     fontSize: 16,
-    color: '#666',
+    color: '#506690',
     textAlign: 'center',
     marginBottom: 24,
   },
@@ -1004,11 +1091,31 @@ const styles = StyleSheet.create({
     backgroundColor: '#D32F2F',
     paddingHorizontal: 24,
     paddingVertical: 12,
-    borderRadius: 8,
+    borderRadius: 12,
   },
   errorButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  courseList: {
+    padding: 8,
+    paddingBottom: 32,
+  },
+  listHeader: {
+    paddingHorizontal: 8,
+    paddingVertical: 12,
+  },
+  listHeaderText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1c3a70',
+  },
+  listFooter: {
+    height: 20,
+  },
+  gridRow: {
+    flex: 1,
+    justifyContent: 'space-between',
   },
 }); 

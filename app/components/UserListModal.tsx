@@ -13,7 +13,7 @@ import {
   Keyboard,
   Platform
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { MaterialIcons } from '@expo/vector-icons';
 import { User, deleteUser } from '../../lib/api';
 
 interface UserListModalProps {
@@ -48,6 +48,9 @@ export const UserListModal: React.FC<UserListModalProps> = ({
   // Animation values
   const translateY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
   const overlayOpacity = useRef(new Animated.Value(0)).current;
+
+  // Capitalized role for display
+  const capitalizedRole = role.charAt(0).toUpperCase() + role.slice(1);
 
   const filteredUsers = users.filter(user =>
     `${user.idNumber} ${user.firstName} ${user.lastName} ${user.email}`
@@ -154,6 +157,17 @@ export const UserListModal: React.FC<UserListModalProps> = ({
 
   if (!visible) return null;
 
+  const getRoleColor = (userRole: string) => {
+    switch (userRole) {
+      case 'admin': return '#1c3a70';
+      case 'lecturer': return '#2D5F2D';
+      case 'student': return '#7D4600';
+      default: return '#506690';
+    }
+  };
+
+  const roleColor = getRoleColor(role);
+
   return (
     <View style={StyleSheet.absoluteFill}>
       <Animated.View 
@@ -194,33 +208,33 @@ export const UserListModal: React.FC<UserListModalProps> = ({
           {/* Header */}
           <View style={styles.header}>
             <View style={styles.headerContent}>
-              <Text style={styles.title}>{role} Users</Text>
+              <Text style={[styles.title, {color: roleColor}]}>{capitalizedRole} Users</Text>
               {isRefreshing ? (
-                <ActivityIndicator color="#1a73e8" />
+                <ActivityIndicator color={roleColor} />
               ) : (
                 <TouchableOpacity onPress={handleRefresh} style={styles.refreshButton}>
-                  <Ionicons name="refresh" size={22} color="#1a73e8" />
+                  <MaterialIcons name="refresh" size={22} color={roleColor} />
                 </TouchableOpacity>
               )}
             </View>
             <TouchableOpacity onPress={closeDrawer} style={styles.closeButton}>
-              <Ionicons name="close" size={24} color="#666" />
+              <MaterialIcons name="close" size={24} color="#506690" />
             </TouchableOpacity>
           </View>
 
           {/* Search Bar */}
           <View style={styles.searchContainer}>
-            <Ionicons name="search" size={20} color="#666" />
+            <MaterialIcons name="search" size={20} color="#506690" />
             <TextInput
               style={styles.searchInput}
               placeholder="Search by ID, name, or email..."
               value={searchQuery}
               onChangeText={setSearchQuery}
-              placeholderTextColor="#999"
+              placeholderTextColor="#8896AB"
             />
             {searchQuery ? (
               <TouchableOpacity onPress={() => setSearchQuery('')}>
-                <Ionicons name="close-circle" size={20} color="#666" />
+                <MaterialIcons name="cancel" size={20} color="#506690" />
               </TouchableOpacity>
             ) : null}
           </View>
@@ -231,51 +245,62 @@ export const UserListModal: React.FC<UserListModalProps> = ({
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
           >
-            {filteredUsers.map((user) => (
-              <View key={user._id} style={styles.userCard}>
-                <View style={styles.userInfo}>
-                  <Text style={styles.userId}>{user.idNumber}</Text>
-                  <Text style={styles.userName}>{user.lastName}, {user.firstName}</Text>
-                  <Text style={styles.userEmail}>{user.email}</Text>
-                  
-                  {/* Display role badges */}
-                  <View style={styles.roleBadgesContainer}>
-                    {(Array.isArray(user.roles) ? user.roles : [user.role]).map((role, index) => (
-                      <View 
-                        key={index} 
-                        style={[
-                          styles.roleBadge, 
-                          role === 'admin' ? styles.adminBadge : 
-                          role === 'lecturer' ? styles.lecturerBadge : 
-                          styles.studentBadge
-                        ]}
-                      >
-                        <Text style={styles.roleBadgeText}>{role.charAt(0).toUpperCase() + role.slice(1)}</Text>
-                      </View>
-                    ))}
+            {filteredUsers.length > 0 ? (
+              filteredUsers.map((user) => (
+                <View key={user._id} style={styles.userCard}>
+                  <View style={styles.userInfo}>
+                    <Text style={styles.userId}>{user.idNumber}</Text>
+                    <Text style={[styles.userName, {color: roleColor}]}>{user.lastName}, {user.firstName}</Text>
+                    <Text style={styles.userEmail}>{user.email}</Text>
+                    
+                    {/* Display role badges */}
+                    <View style={styles.roleBadgesContainer}>
+                      {(Array.isArray(user.roles) ? user.roles : [user.role]).map((userRole, index) => {
+                        const badgeColor = getRoleColor(userRole);
+                        return (
+                          <View 
+                            key={index} 
+                            style={[
+                              styles.roleBadge, 
+                              { backgroundColor: `${badgeColor}15`, borderColor: `${badgeColor}30` }
+                            ]}
+                          >
+                            <Text style={[styles.roleBadgeText, { color: badgeColor }]}>
+                              {userRole.charAt(0).toUpperCase() + userRole.slice(1)}
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  </View>
+                  <View style={styles.userActions}>
+                    <TouchableOpacity
+                      style={[styles.actionButton, styles.editButton]}
+                      onPress={() => onEdit(user)}
+                    >
+                      <MaterialIcons name="edit" size={20} color="#2D5F2D" />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.actionButton, styles.deleteButton]}
+                      onPress={() => handleDeleteClick(user)}
+                      disabled={isDeleting === user._id}
+                    >
+                      {isDeleting === user._id ? (
+                        <ActivityIndicator size="small" color="#EF4444" />
+                      ) : (
+                        <MaterialIcons name="delete" size={20} color="#EF4444" />
+                      )}
+                    </TouchableOpacity>
                   </View>
                 </View>
-                <View style={styles.userActions}>
-                  <TouchableOpacity
-                    style={[styles.actionButton, styles.editButton]}
-                    onPress={() => onEdit(user)}
-                  >
-                    <Ionicons name="pencil" size={20} color="#4CAF50" />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.actionButton, styles.deleteButton]}
-                    onPress={() => handleDeleteClick(user)}
-                    disabled={isDeleting === user._id}
-                  >
-                    {isDeleting === user._id ? (
-                      <ActivityIndicator size="small" color="#F44336" />
-                    ) : (
-                      <Ionicons name="trash" size={20} color="#F44336" />
-                    )}
-                  </TouchableOpacity>
-                </View>
+              ))
+            ) : (
+              <View style={styles.emptyStateContainer}>
+                <MaterialIcons name="search-off" size={48} color="#8896AB" />
+                <Text style={styles.emptyStateText}>No users found</Text>
+                <Text style={styles.emptyStateSubtext}>Try adjusting your search query</Text>
               </View>
-            ))}
+            )}
           </ScrollView>
         </View>
 
@@ -283,6 +308,9 @@ export const UserListModal: React.FC<UserListModalProps> = ({
         {showDeleteConfirm && (
           <View style={styles.confirmOverlay}>
             <View style={styles.confirmContent}>
+              <View style={styles.confirmIconContainer}>
+                <MaterialIcons name="warning" size={40} color="#fff" />
+              </View>
               <Text style={styles.confirmTitle}>Confirm Delete</Text>
               <Text style={styles.confirmText}>
                 Are you sure you want to delete {userToDelete?.firstName} {userToDelete?.lastName}?
@@ -320,7 +348,7 @@ export const UserListModal: React.FC<UserListModalProps> = ({
 const styles = StyleSheet.create({
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(23, 43, 77, 0.7)',
   },
   drawer: {
     position: 'absolute',
@@ -352,7 +380,7 @@ const styles = StyleSheet.create({
   handleBar: {
     width: 40,
     height: 4,
-    backgroundColor: '#e1e1e1',
+    backgroundColor: '#e7eaf0',
     borderRadius: 2,
   },
   header: {
@@ -361,6 +389,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 24,
     paddingBottom: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f4f9',
   },
   headerContent: {
     flex: 1,
@@ -370,7 +400,6 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#1a73e8',
     marginRight: 12,
   },
   refreshButton: {
@@ -387,15 +416,15 @@ const styles = StyleSheet.create({
     marginHorizontal: 24,
     borderRadius: 12,
     padding: 12,
-    marginBottom: 16,
+    marginVertical: 16,
     borderWidth: 1,
-    borderColor: '#e9ecef',
+    borderColor: '#e7eaf0',
   },
   searchInput: {
     flex: 1,
-    fontSize: 16,
+    fontSize: 15,
     marginLeft: 8,
-    color: '#333',
+    color: '#2d3748',
     paddingVertical: Platform.OS === 'ios' ? 8 : 4,
   },
   userList: {
@@ -406,11 +435,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#fff',
-    borderRadius: 12,
+    borderRadius: 16,
     padding: 16,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#e9ecef',
+    borderColor: '#e7eaf0',
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
@@ -425,18 +454,17 @@ const styles = StyleSheet.create({
   },
   userId: {
     fontSize: 14,
-    color: '#666',
+    color: '#506690',
     marginBottom: 4,
   },
   userName: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#1a73e8',
     marginBottom: 4,
   },
   userEmail: {
     fontSize: 14,
-    color: '#666',
+    color: '#506690',
   },
   userActions: {
     flexDirection: 'row',
@@ -445,19 +473,35 @@ const styles = StyleSheet.create({
   actionButton: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
   },
   editButton: {
-    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+    backgroundColor: 'rgba(45, 95, 45, 0.1)',
   },
   deleteButton: {
-    backgroundColor: 'rgba(244, 67, 54, 0.1)',
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+  },
+  roleBadgesContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8,
+  },
+  roleBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  roleBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   confirmOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(23, 43, 77, 0.7)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -469,21 +513,30 @@ const styles = StyleSheet.create({
     maxWidth: 400,
     alignItems: 'center',
   },
+  confirmIconContainer: {
+    width: 60,
+    height: 60,
+    backgroundColor: '#EF4444',
+    borderRadius: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
   confirmTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#F44336',
+    color: '#EF4444',
     marginBottom: 16,
   },
   confirmText: {
     fontSize: 16,
-    color: '#333',
+    color: '#2d3748',
     marginBottom: 8,
     textAlign: 'center',
   },
   confirmWarning: {
     fontSize: 14,
-    color: '#666',
+    color: '#506690',
     marginBottom: 24,
     textAlign: 'center',
   },
@@ -498,50 +551,40 @@ const styles = StyleSheet.create({
     padding: 14,
     borderRadius: 12,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   cancelConfirmButton: {
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#f0f4f9',
     borderWidth: 1,
-    borderColor: '#e9ecef',
+    borderColor: '#e7eaf0',
   },
   deleteConfirmButton: {
-    backgroundColor: '#F44336',
+    backgroundColor: '#EF4444',
   },
   cancelConfirmText: {
-    color: '#666',
     fontSize: 16,
     fontWeight: '600',
+    color: '#506690',
   },
   deleteConfirmText: {
-    color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+    color: '#fff',
   },
-  roleBadgesContainer: {
-    flexDirection: 'row',
-    gap: 4,
-    marginTop: 8,
-    flexWrap: 'wrap',
+  emptyStateContainer: {
+    paddingVertical: 60,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  roleBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginRight: 4,
-    marginBottom: 4,
+  emptyStateText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#2d3748',
+    marginTop: 16,
+    marginBottom: 8,
   },
-  adminBadge: {
-    backgroundColor: 'rgba(26, 115, 232, 0.1)',
-  },
-  lecturerBadge: {
-    backgroundColor: 'rgba(76, 175, 80, 0.1)',
-  },
-  studentBadge: {
-    backgroundColor: 'rgba(255, 152, 0, 0.1)',
-  },
-  roleBadgeText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#666',
+  emptyStateSubtext: {
+    fontSize: 14,
+    color: '#506690',
   },
 }); 

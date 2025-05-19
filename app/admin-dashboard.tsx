@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, Modal, BackHandler, Animated, TextInput, KeyboardAvoidingView, Platform, PanResponder, Dimensions, ActivityIndicator, Keyboard } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, Modal, BackHandler, Animated, TextInput, KeyboardAvoidingView, Platform, PanResponder, Dimensions, ActivityIndicator, Keyboard, StatusBar, SafeAreaView } from 'react-native';
 import { router } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { MaterialIcons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import { User, getUsers, deleteUser, createUser, logoutUser, updateUser } from '../lib/api';
@@ -9,6 +9,7 @@ import { UserListModal } from './components/UserListModal';
 import { API_CONFIG } from '../config';
 import Alert from './components/Alert';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { LinearGradient } from 'expo-linear-gradient';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -27,6 +28,7 @@ interface UserFormData {
 
 // Add at the top with other constants
 const SCREEN_HEIGHT = Dimensions.get('window').height;
+const SCREEN_WIDTH = Dimensions.get('window').width;
 const DRAG_THRESHOLD = 50;
 
 // Role card component for Manage Users
@@ -34,29 +36,31 @@ interface RoleCardProps {
   role: string;
   count: number;
   onPress: () => void;
-  iconName: keyof typeof Ionicons.glyphMap;
+  iconName: keyof typeof MaterialIcons.glyphMap;
+  color: string;
 }
 
-const RoleCard: React.FC<RoleCardProps> = ({ role, count, onPress, iconName }) => (
+const RoleCard: React.FC<RoleCardProps> = ({ role, count, onPress, iconName, color }) => (
   <TouchableOpacity 
     style={styles.roleCard} 
     onPress={onPress}
     activeOpacity={0.9}
   >
     <View style={styles.roleCardContent}>
-      <View style={[styles.roleIconContainer, role === 'admin' ? styles.adminIconContainer : role === 'lecturer' ? styles.lecturerIconContainer : styles.studentIconContainer]}>
-        <Ionicons name={iconName} size={28} color="#1a73e8" />
+      <View style={[
+        styles.roleIconContainer, 
+        { backgroundColor: `${color}15` }
+      ]}>
+        <MaterialIcons name={iconName} size={28} color={color} />
       </View>
       <View style={styles.roleInfo}>
-        <Text style={styles.roleTitle}>{role.charAt(0).toUpperCase() + role.slice(1)}s</Text>
+        <Text style={[styles.roleTitle, { color }]}>{role.charAt(0).toUpperCase() + role.slice(1)}s</Text>
         <Text style={styles.roleCount}>{count} {count === 1 ? 'user' : 'users'}</Text>
       </View>
-      <Ionicons name="chevron-forward" size={20} color="#1a73e8" style={styles.roleArrow} />
+      <MaterialIcons name="arrow-forward-ios" size={18} color={color} style={styles.roleArrow} />
     </View>
   </TouchableOpacity>
 );
-
-
 
 export default function AdminDashboard() {
   const [fontsLoaded, fontError] = useFonts({
@@ -464,7 +468,7 @@ export default function AdminDashboard() {
           {editingUser ? `Edit: ${editingUser.firstName} ${editingUser.lastName}` : 'Add New User'}
         </Text>
         <TouchableOpacity onPress={closeDrawer} style={styles.closeButton}>
-          <Ionicons name="close" size={24} color="#666" />
+          <MaterialIcons name="close" size={24} color="#506690" />
         </TouchableOpacity>
       </View>
 
@@ -482,20 +486,20 @@ export default function AdminDashboard() {
           {/* Personal Information Section */}
           <View style={styles.formSection}>
             <View style={styles.sectionHeader}>
-              <Ionicons name="person-circle-outline" size={24} color="#1a73e8" />
+              <MaterialIcons name="person" size={24} color="#1c3a70" />
               <Text style={styles.sectionTitle}>Personal Information</Text>
             </View>
             
             <View style={styles.inputContainer}>
               <Text style={styles.inputLabel}>ID Number</Text>
               <View style={styles.inputWrapper}>
-                <Ionicons name="card-outline" size={20} color="#666" style={styles.inputIcon} />
+                <MaterialIcons name="credit-card" size={20} color="#506690" style={styles.inputIcon} />
                 <TextInput
                   style={styles.input}
                   value={formData.idNumber}
                   onChangeText={(text) => setFormData({ ...formData, idNumber: text })}
                   placeholder="Enter ID number"
-                  placeholderTextColor="#999"
+                  placeholderTextColor="#8896AB"
                 />
               </View>
             </View>
@@ -504,13 +508,13 @@ export default function AdminDashboard() {
               <View style={[styles.inputContainer, { flex: 1 }]}>
                 <Text style={styles.inputLabel}>First Name</Text>
                 <View style={styles.inputWrapper}>
-                  <Ionicons name="person-outline" size={20} color="#666" style={styles.inputIcon} />
+                  <MaterialIcons name="person-outline" size={20} color="#506690" style={styles.inputIcon} />
                   <TextInput
                     style={styles.input}
                     value={formData.firstName}
                     onChangeText={(text) => setFormData({ ...formData, firstName: text })}
                     placeholder="Enter first name"
-                    placeholderTextColor="#999"
+                    placeholderTextColor="#8896AB"
                   />
                 </View>
               </View>
@@ -518,13 +522,13 @@ export default function AdminDashboard() {
               <View style={[styles.inputContainer, { flex: 1 }]}>
                 <Text style={styles.inputLabel}>Last Name</Text>
                 <View style={styles.inputWrapper}>
-                  <Ionicons name="person-outline" size={20} color="#666" style={styles.inputIcon} />
+                  <MaterialIcons name="person-outline" size={20} color="#506690" style={styles.inputIcon} />
                   <TextInput
                     style={styles.input}
                     value={formData.lastName}
                     onChangeText={(text) => setFormData({ ...formData, lastName: text })}
                     placeholder="Enter last name"
-                    placeholderTextColor="#999"
+                    placeholderTextColor="#8896AB"
                   />
                 </View>
               </View>
@@ -534,14 +538,14 @@ export default function AdminDashboard() {
           {/* Account Information Section */}
           <View style={styles.formSection}>
             <View style={styles.sectionHeader}>
-              <Ionicons name="lock-closed-outline" size={24} color="#1a73e8" />
+              <MaterialIcons name="security" size={24} color="#1c3a70" />
               <Text style={styles.sectionTitle}>Account Information</Text>
             </View>
             
             <View style={styles.inputContainer}>
               <Text style={styles.inputLabel}>Email</Text>
               <View style={styles.inputWrapper}>
-                <Ionicons name="mail-outline" size={20} color="#666" style={styles.inputIcon} />
+                <MaterialIcons name="email" size={20} color="#506690" style={styles.inputIcon} />
                 <TextInput
                   style={styles.input}
                   value={formData.email}
@@ -549,7 +553,7 @@ export default function AdminDashboard() {
                   placeholder="Enter email address"
                   keyboardType="email-address"
                   autoCapitalize="none"
-                  placeholderTextColor="#999"
+                  placeholderTextColor="#8896AB"
                 />
               </View>
             </View>
@@ -557,14 +561,14 @@ export default function AdminDashboard() {
             <View style={styles.inputContainer}>
               <Text style={styles.inputLabel}>Username</Text>
               <View style={styles.inputWrapper}>
-                <Ionicons name="at-outline" size={20} color="#666" style={styles.inputIcon} />
+                <MaterialIcons name="alternate-email" size={20} color="#506690" style={styles.inputIcon} />
                 <TextInput
                   style={styles.input}
                   value={formData.username}
                   onChangeText={(text) => setFormData({ ...formData, username: text })}
                   placeholder="Enter username"
                   autoCapitalize="none"
-                  placeholderTextColor="#999"
+                  placeholderTextColor="#8896AB"
                 />
               </View>
             </View>
@@ -573,7 +577,7 @@ export default function AdminDashboard() {
           {/* Role Selection Section */}
           <View style={styles.formSection}>
             <View style={styles.sectionHeader}>
-              <Ionicons name="shield-outline" size={24} color="#1a73e8" />
+              <MaterialIcons name="admin-panel-settings" size={24} color="#1c3a70" />
               <Text style={styles.sectionTitle}>Role</Text>
             </View>
             
@@ -603,13 +607,13 @@ export default function AdminDashboard() {
                     styles.drawerRoleIconContainer,
                     formData.roles.includes(role) && styles.drawerRoleIconContainerSelected
                   ]}>
-                    <Ionicons
+                    <MaterialIcons
                       name={
-                        role === 'admin' ? 'shield-checkmark' :
-                        role === 'lecturer' ? 'school' : 'people'
+                        role === 'admin' ? 'admin-panel-settings' :
+                        role === 'lecturer' ? 'school' : 'groups'
                       }
                       size={24}
-                      color={formData.roles.includes(role) ? '#fff' : '#666'}
+                      color={formData.roles.includes(role) ? '#fff' : '#506690'}
                     />
                   </View>
                   <Text
@@ -631,7 +635,7 @@ export default function AdminDashboard() {
             style={[styles.drawerButton, styles.cancelButton]}
             onPress={closeDrawer}
           >
-            <Ionicons name="close-circle-outline" size={20} color="#666" style={styles.buttonIcon} />
+            <MaterialIcons name="close" size={20} color="#506690" style={styles.buttonIcon} />
             <Text style={styles.cancelButtonText}>Cancel</Text>
           </TouchableOpacity>
           
@@ -644,8 +648,8 @@ export default function AdminDashboard() {
               <ActivityIndicator color="#fff" />
             ) : (
               <>
-                <Ionicons name="checkmark-circle-outline" size={20} color="#fff" style={styles.buttonIcon} />
-                <Text style={styles.saveButtonText}>Create User</Text>
+                <MaterialIcons name="check" size={20} color="#fff" style={styles.buttonIcon} />
+                <Text style={styles.saveButtonText}>{editingUser ? 'Update User' : 'Create User'}</Text>
               </>
             )}
           </TouchableOpacity>
@@ -660,25 +664,36 @@ export default function AdminDashboard() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.headerContent}>
-          <View style={styles.headerLeft}>
-            <Image
-              source={require('../assets/images/logo.png')}
-              style={styles.logoImage}
-              resizeMode="contain"
-            />
-            <View style={styles.headerTitleContainer}>
-              <Text style={[styles.headerTitle, styles.headerTitleChe]}>CHE</Text>
-              <Text style={[styles.headerTitle, styles.headerTitleQr]}>QR</Text>
+      <StatusBar 
+        barStyle="light-content" 
+        backgroundColor="#1c3a70"
+        translucent={true}
+      />
+      
+      <LinearGradient
+        colors={['#1c3a70', '#2c5282', '#3a6298']}
+        style={styles.headerGradient}>
+        <View style={styles.header}>
+          <View style={styles.headerContent}>
+            <View style={styles.headerLeft}>
+              <Image
+                source={require('../assets/images/logo.png')}
+                style={styles.logoImage}
+                resizeMode="contain"
+              />
+              <View style={styles.headerTitleContainer}>
+                <Text style={[styles.headerTitle, styles.headerTitleChe]}>CHE</Text>
+                <Text style={[styles.headerTitle, styles.headerTitleQr]}>QR</Text>
+              </View>
             </View>
+            <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
+              <MaterialIcons name="logout" size={24} color="#fff" />
+            </TouchableOpacity>
           </View>
-          <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
-            <Ionicons name="log-out-outline" size={32} color="#002147" />
-          </TouchableOpacity>
+          <Text style={styles.welcomeText}>Admin Dashboard</Text>
+          <Text style={styles.subtitleText}>Manage users, courses, and attendance reports</Text>
         </View>
-        <Text style={styles.welcomeText}>Admin Dashboard</Text>
-      </View>
+      </LinearGradient>
 
       <ScrollView 
         style={styles.content} 
@@ -694,7 +709,7 @@ export default function AdminDashboard() {
               {/* Card Header */}
               <View style={styles.cardHeader}>
                 <View style={[styles.cardIconContainer, styles.usersIconContainer]}>
-                  <Ionicons name="people" size={32} color="#1a73e8" />
+                  <MaterialIcons name="people" size={28} color="#1c3a70" />
                 </View>
                 <View style={styles.cardContent}>
                   <Text style={styles.cardTitle}>Manage Users</Text>
@@ -708,7 +723,7 @@ export default function AdminDashboard() {
                 onPress={handleAddUser}
                 activeOpacity={0.8}
               >
-                <Ionicons name="add-circle" size={20} color="#fff" />
+                <MaterialIcons name="person-add" size={20} color="#fff" />
                 <Text style={styles.addUserButtonText}>Add New User</Text>
               </TouchableOpacity>
 
@@ -718,10 +733,10 @@ export default function AdminDashboard() {
                 onPress={toggleRoleCards}
                 activeOpacity={0.8}
               >
-                <Ionicons 
-                  name={showRoleCards ? "chevron-up" : "chevron-down"} 
+                <MaterialIcons 
+                  name={showRoleCards ? "expand-less" : "expand-more"} 
                   size={20} 
-                  color="#1a73e8" 
+                  color="#506690" 
                 />
                 <Text style={styles.toggleButtonText}>
                   {showRoleCards ? "Hide Role Cards" : "Show Role Cards"}
@@ -735,19 +750,22 @@ export default function AdminDashboard() {
                     role="admin"
                     count={getUsersByRole('admin').length}
                     onPress={() => handleRoleCardPress('admin')}
-                    iconName="shield-checkmark"
+                    iconName="admin-panel-settings"
+                    color="#1c3a70"
                   />
                   <RoleCard
                     role="lecturer"
                     count={getUsersByRole('lecturer').length}
                     onPress={() => handleRoleCardPress('lecturer')}
                     iconName="school"
+                    color="#2D5F2D"
                   />
                   <RoleCard
                     role="student"
                     count={getUsersByRole('student').length}
                     onPress={() => handleRoleCardPress('student')}
-                    iconName="people"
+                    iconName="groups"
+                    color="#7D4600"
                   />
                 </View>
               )}
@@ -765,13 +783,13 @@ export default function AdminDashboard() {
             >
               <View style={styles.cardHeader}>
                 <View style={[styles.cardIconContainer, styles.coursesIconContainer]}>
-                  <Ionicons name="book" size={32} color="#1a73e8" />
+                  <MaterialIcons name="menu-book" size={28} color="#2D5F2D" />
                 </View>
                 <View style={styles.cardContent}>
-                  <Text style={styles.cardTitle}>Manage Courses</Text>
+                  <Text style={[styles.cardTitle, {color: '#2D5F2D'}]}>Manage Courses</Text>
                   <Text style={styles.cardDescription}>Add, edit, and organize academic courses</Text>
                 </View>
-                <Ionicons name="chevron-forward" size={24} color="#1a73e8" style={styles.cardArrow} />
+                <MaterialIcons name="arrow-forward-ios" size={18} color="#2D5F2D" style={styles.cardArrow} />
               </View>
             </TouchableOpacity>
           </Animated.View>
@@ -787,13 +805,13 @@ export default function AdminDashboard() {
             >
               <View style={styles.cardHeader}>
                 <View style={[styles.cardIconContainer, styles.reportsIconContainer]}>
-                  <Ionicons name="analytics" size={32} color="#1a73e8" />
+                  <MaterialIcons name="insights" size={28} color="#7D4600" />
                 </View>
                 <View style={styles.cardContent}>
-                  <Text style={styles.cardTitle}>Attendance Reports</Text>
+                  <Text style={[styles.cardTitle, {color: '#7D4600'}]}>Attendance Reports</Text>
                   <Text style={styles.cardDescription}>Generate and export attendance reports</Text>
                 </View>
-                <Ionicons name="chevron-forward" size={24} color="#1a73e8" style={styles.cardArrow} />
+                <MaterialIcons name="arrow-forward-ios" size={18} color="#7D4600" style={styles.cardArrow} />
               </View>
             </TouchableOpacity>
           </Animated.View>
@@ -867,7 +885,7 @@ export default function AdminDashboard() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.confirmHeader}>
-              <Ionicons name="log-out-outline" size={48} color="#002147" />
+              <MaterialIcons name="logout" size={40} color="#1c3a70" />
               <Text style={styles.confirmTitle}>Confirm Logout</Text>
             </View>
             
@@ -899,59 +917,61 @@ export default function AdminDashboard() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#f5f7fa',
+  },
+  headerGradient: {
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 24) - 25 : 0,
   },
   header: {
-    backgroundColor: 'transparent',
-    padding: 24,
-    paddingTop: 40,
+    padding: 16,
   },
   headerContent: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    marginBottom: 8,
   },
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   logoImage: {
-    width: 54,
-    height: 54,
-    marginRight: 12,
+    width: 38,
+    height: 38,
+    marginRight: 8,
   },
   headerTitleContainer: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 75,
-    marginTop: 10,
-    lineHeight: 75,
+    fontSize: 40,
+    lineHeight: 40,
     includeFontPadding: false,
     textAlignVertical: 'center',
+    fontFamily: 'THEDISPLAYFONT',
   },
   headerTitleChe: {
-    color: '#002147',
-    fontFamily: 'THEDISPLAYFONT',
+    color: '#fff',
   },
   headerTitleQr: {
     color: '#FFD700',
-    fontFamily: 'THEDISPLAYFONT',
   },
   welcomeText: {
-    fontSize: 28,
-    color: '#002147',
+    fontSize: 22,
+    color: '#fff',
     fontWeight: 'bold',
+    marginBottom: 2,
+  },
+  subtitleText: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.85)',
+    marginBottom: 5,
   },
   logoutButton: {
-    padding: 12,
-    backgroundColor: 'rgba(0, 33, 71, 0.05)',
+    padding: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
     borderRadius: 12,
-  },
-  logoutConfirmButton: {
-    backgroundColor: '#002147',
   },
   content: {
     flex: 1,
@@ -977,7 +997,7 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     backgroundColor: '#fff',
     borderWidth: 1,
-    borderColor: 'rgba(26, 115, 232, 0.1)',
+    borderColor: 'rgba(80, 102, 144, 0.1)',
   },
   cardHeader: {
     flexDirection: 'row',
@@ -992,13 +1012,13 @@ const styles = StyleSheet.create({
     marginRight: 16,
   },
   usersIconContainer: {
-    backgroundColor: 'rgba(26, 115, 232, 0.1)',
+    backgroundColor: 'rgba(28, 58, 112, 0.1)',
   },
   coursesIconContainer: {
-    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+    backgroundColor: 'rgba(45, 95, 45, 0.1)',
   },
   reportsIconContainer: {
-    backgroundColor: 'rgba(255, 193, 7, 0.1)',
+    backgroundColor: 'rgba(125, 70, 0, 0.1)',
   },
   cardContent: {
     flex: 1,
@@ -1006,12 +1026,12 @@ const styles = StyleSheet.create({
   cardTitle: {
     fontSize: 20,
     fontWeight: '700',
-    color: '#1a73e8',
+    color: '#1c3a70',
     marginBottom: 4,
   },
   cardDescription: {
     fontSize: 14,
-    color: '#666',
+    color: '#506690',
     lineHeight: 20,
   },
   cardArrow: {
@@ -1022,12 +1042,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#1a73e8',
+    backgroundColor: '#1c3a70',
     padding: 16,
     borderRadius: 16,
     marginTop: 24,
-    marginBottom: 24,
-    shadowColor: '#1a73e8',
+    marginBottom: 16,
+    shadowColor: '#1c3a70',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 8,
@@ -1048,22 +1068,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: 12,
-    marginTop: 8,
+    marginTop: 4,
     borderRadius: 12,
-    backgroundColor: 'rgba(26, 115, 232, 0.05)',
+    backgroundColor: 'rgba(80, 102, 144, 0.08)',
   },
   toggleButtonText: {
     marginLeft: 8,
     fontSize: 14,
     fontWeight: '600',
-    color: '#1a73e8',
+    color: '#506690',
   },
   roleCard: {
     backgroundColor: '#fff',
     borderRadius: 16,
     padding: 20,
     borderWidth: 1,
-    borderColor: 'rgba(26, 115, 232, 0.1)',
+    borderColor: 'rgba(80, 102, 144, 0.1)',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
@@ -1082,34 +1102,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginRight: 16,
   },
-  adminIconContainer: {
-    backgroundColor: 'rgba(26, 115, 232, 0.1)',
-  },
-  lecturerIconContainer: {
-    backgroundColor: 'rgba(76, 175, 80, 0.1)',
-  },
-  studentIconContainer: {
-    backgroundColor: 'rgba(255, 152, 0, 0.1)',
-  },
   roleInfo: {
     flex: 1,
   },
   roleTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#1a73e8',
+    color: '#1c3a70',
     marginBottom: 4,
   },
   roleCount: {
     fontSize: 14,
-    color: '#666',
+    color: '#506690',
   },
   roleArrow: {
     opacity: 0.6,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(23, 43, 77, 0.7)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1127,12 +1138,12 @@ const styles = StyleSheet.create({
   confirmTitle: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#002147',
+    color: '#1c3a70',
     marginTop: 16,
   },
   confirmText: {
     fontSize: 16,
-    color: '#666',
+    color: '#506690',
     textAlign: 'center',
     lineHeight: 24,
     marginBottom: 28,
@@ -1149,9 +1160,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   cancelButton: {
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#f0f4f9',
     borderWidth: 1,
-    borderColor: '#e9ecef',
+    borderColor: '#e7eaf0',
   },
   logoutButtonText: {
     color: '#fff',
@@ -1159,7 +1170,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   cancelButtonText: {
-    color: '#666',
+    color: '#506690',
     fontSize: 16,
     fontWeight: '600',
   },
@@ -1169,7 +1180,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(23, 43, 77, 0.7)',
   },
   drawerBackdrop: {
     position: 'absolute',
@@ -1203,7 +1214,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: '#e7eaf0',
   },
   drawerHandle: {
     position: 'absolute',
@@ -1218,7 +1229,7 @@ const styles = StyleSheet.create({
   drawerTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#1a73e8',
+    color: '#1c3a70',
     flex: 1,
     textAlign: 'center',
   },
@@ -1237,12 +1248,12 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     paddingBottom: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: '#e7eaf0',
   },
   sectionTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#1a73e8',
+    color: '#1c3a70',
     marginLeft: 12,
   },
   inputContainer: {
@@ -1251,7 +1262,7 @@ const styles = StyleSheet.create({
   inputLabel: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#666',
+    color: '#506690',
     marginBottom: 8,
   },
   inputWrapper: {
@@ -1259,7 +1270,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#f8f9fa',
     borderWidth: 1,
-    borderColor: '#e9ecef',
+    borderColor: '#e7eaf0',
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 12,
@@ -1269,8 +1280,8 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
-    fontSize: 16,
-    color: '#333',
+    fontSize: 15,
+    color: '#2d3748',
     padding: 0,
   },
   nameContainer: {
@@ -1286,14 +1297,14 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f8f9fa',
     borderWidth: 1,
-    borderColor: '#e9ecef',
+    borderColor: '#e7eaf0',
     borderRadius: 12,
     padding: 16,
     alignItems: 'center',
   },
   roleButtonSelected: {
-    backgroundColor: '#1a73e8',
-    borderColor: '#1a73e8',
+    backgroundColor: '#1c3a70',
+    borderColor: '#1c3a70',
   },
   drawerRoleIconContainer: {
     width: 40,
@@ -1304,7 +1315,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: '#e9ecef',
+    borderColor: '#e7eaf0',
   },
   drawerRoleIconContainerSelected: {
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
@@ -1313,7 +1324,7 @@ const styles = StyleSheet.create({
   roleButtonText: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#666',
+    color: '#506690',
     marginTop: 4,
   },
   roleButtonTextSelected: {
@@ -1326,7 +1337,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 16,
     borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
+    borderTopColor: '#e7eaf0',
   },
   drawerButton: {
     flex: 1,
@@ -1340,7 +1351,7 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   saveButton: {
-    backgroundColor: '#1a73e8',
+    backgroundColor: '#1c3a70',
   },
   saveButtonText: {
     fontSize: 16,
@@ -1355,17 +1366,17 @@ const styles = StyleSheet.create({
   roleBadge: {
     padding: 4,
     borderWidth: 1,
-    borderColor: '#e9ecef',
+    borderColor: '#e7eaf0',
     borderRadius: 8,
   },
   adminBadge: {
-    backgroundColor: 'rgba(26, 115, 232, 0.1)',
+    backgroundColor: 'rgba(28, 58, 112, 0.1)',
   },
   lecturerBadge: {
-    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+    backgroundColor: 'rgba(45, 95, 45, 0.1)',
   },
   studentBadge: {
-    backgroundColor: 'rgba(255, 152, 0, 0.1)',
+    backgroundColor: 'rgba(125, 70, 0, 0.1)',
   },
   otherBadge: {
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
@@ -1373,6 +1384,9 @@ const styles = StyleSheet.create({
   roleBadgeText: {
     fontSize: 12,
     fontWeight: '500',
-    color: '#666',
+    color: '#506690',
+  },
+  logoutConfirmButton: {
+    backgroundColor: '#1c3a70',
   },
 }); 
