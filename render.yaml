@@ -2,7 +2,6 @@ services:
   - type: web
     name: cheqr-backend
     env: node
-    rootDir: backend
     buildCommand: npm install
     startCommand: npm start
     envVars:
